@@ -1,0 +1,30 @@
+[package]
+name = "jd-helper"
+version = "0.1.0"
+edition = "2021"
+description = "Filesystem-first Johnny Decimal navigation helper"
+
+[dependencies]
+anyhow = "1.0"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+walkdir = "2.5"
+regex = "1.10"
+plist = "1.6"
+chrono = { version = "0.4", features = ["serde"] }
+parking_lot = "0.12"
+home = "0.5"
+utf8-chars = "3.0"
+percent-encoding = "2.3"
+rayon = "1.10"
+tempfile = "3.10"
+once_cell = "1.19"
+sha1 = "0.10"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+serial_test = "3.1"
+

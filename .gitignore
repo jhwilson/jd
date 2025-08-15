@@ -1,0 +1,68 @@
+# Rust build and tooling
+/target/
+/Cargo.lock 
+**/*.rs.bk
+**/*.rlib
+**/*.rmeta
+
+# Rust coverage/artifacts
+/coverage/
+/profraw/
+/debug/
+
+# Binaries
+*.exe
+*.dll
+*.dylib
+*.so
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# Editors/IDE
+.vscode/
+.idea/
+*.iml
+
+# Python (if any scripts/tools)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache/
+
+# Node (if any tooling)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Project caches and ignored content
+# JD helper state and indexes
+*.jd_index.json
+/.jd_index.json
+/cache/
+.tmp/
+temp/
+tmp/
+.cache/
+logs/
+*.log
+*.bak
+*.backup
+*.old
+
+# Obsidian, Git internals, AUCTeX auto (handled at scan time but ignore here too)
+.obsidian/
+.git/
+.auctex-auto/
+
+# Local wrapper install breadcrumbs (if any)
+.zsh_history
+.zcompdump*

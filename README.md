@@ -15,6 +15,38 @@ cargo build --release
 source ~/.zshrc
 ```
 
+Requirements
+------------
+
+- Shell: zsh (the wrapper uses zsh-only features)
+- Rust toolchain: stable Rust with cargo (to build `jd-helper`)
+- fzf: required for interactive navigation
+- sed: recommended GNU sed as default `sed` (see macOS note below)
+
+macOS (Homebrew):
+
+```bash
+brew install fzf gnu-sed
+# Make GNU sed the default "sed"
+echo 'export PATH="$(brew --prefix gnu-sed)/libexec/gnubin:$PATH"' >> ~/.zshrc
+# (optional) install fzf keybindings (not required by jd)
+$(brew --prefix)/opt/fzf/install --no-update-rc --no-bash --no-fish --key-bindings --completion
+```
+
+Linux:
+
+```bash
+# Debian/Ubuntu
+sudo apt-get install -y fzf sed
+# If your distro ships BusyBox sed, install GNU sed per distro docs
+```
+
+Optional tools (enhanced UX):
+
+- bat: nicer file preview; falls back to vim/less/more/cat if absent
+- vim: used first if present when viewing files from fzf
+- less/more/cat: used as fallbacks for file preview
+
 - The zsh wrapper `scripts/jd.zsh` dynamically prepends `target/release` to `PATH` based on its location, so it keeps working if you move the repo.
 - Configure your roots inside `scripts/jd.zsh`:
 

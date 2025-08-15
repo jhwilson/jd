@@ -3,6 +3,7 @@ name = "jd-helper"
 version = "0.1.0"
 edition = "2021"
 description = "Filesystem-first Johnny Decimal navigation helper"
+license = "MIT"
 
 [dependencies]
 anyhow = "1.0"

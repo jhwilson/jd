@@ -71,9 +71,9 @@ Fzf keybindings
 - Tab: expand/collapse the selected node (persists to `~/.cache/jd/state.json`)
 - Enter: dir→cd; file→view (vim/bat/less/more/cat); link→open
 - Ctrl-n: create (dir/file/link) via an interactive Rust prompt
-- Ctrl-r: rename title only (code preserved)
-- Ctrl-m: move within the same root (item moved under a category auto-gets next free `NN.MM`)
-- Ctrl-d: delete with confirmation (soft-deleted to `.jd_trash/`)
+- Ctrl-r: rename title only (code preserved) [NOT IMPLEMENTED]
+- Ctrl-m: move within the same root (item moved under a category auto-gets next free `NN.MM`) [NOT IMPLEMENTED]
+- Ctrl-d: delete with confirmation (soft-deleted to `.jd_trash/`) [NOT IMPLEMENTED]
 - Ctrl-a: expand-all (persists state)
 - Ctrl-g: collapse-to-roots (persists state)
 

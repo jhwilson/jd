@@ -51,6 +51,8 @@ struct TreeCmd {
     roots: Vec<PathBuf>,
     #[arg(long)]
     filter: Option<String>,
+    #[arg(long, help="Full-tree fuzzy search; ignores fold state while active")]
+    search: Option<String>,
     #[arg(long)]
     state: Option<PathBuf>,
     #[arg(long, help="List all nodes regardless of fold state")] 
@@ -145,7 +147,12 @@ fn main() -> Result<()> {
             let tree = fs_walk::scan_roots(&cmd.roots)?;
             let state_path = cmd.state;
             let expanded = state::load_state_or_default(state_path.as_ref())?;
-            let lines = tsv::flatten_to_tsv(&tree, cmd.filter.as_deref(), &expanded, cmd.all, cmd.collapse_root);
+            // When --search is provided, traverse all nodes and apply fuzzy to entire tree;
+            // treat empty search string as no search
+            let search_opt = cmd.search.as_ref().and_then(|s| if s.is_empty() { None } else { Some(s.as_str()) });
+            let query = search_opt.or(cmd.filter.as_deref());
+            let show_all = cmd.all || search_opt.is_some();
+            let lines = tsv::flatten_to_tsv(&tree, query, &expanded, show_all, cmd.collapse_root);
             for l in lines { println!("{}", l); }
         }
         Commands::Preview(cmd) => {

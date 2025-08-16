@@ -19,7 +19,6 @@ jd() {
   local STATE="$HOME/.cache/jd/state.json"
   local ROOTS=("/Users/justin/R50_Research")
 
-
   if [[ -z "$1" ]]; then
     # Build a literal reload command without eval; assumes paths have no spaces
     local sel
@@ -27,7 +26,6 @@ jd() {
     if [[ -n "$JD_DEBUG" ]]; then echo "[jd] launching fzf..." >&2; fi
     # Precompute tree commands for reload switching
     local TREE_BASE="jd-helper tree ${ROOTS[*]} --state \"$STATE\""
-    local TREE_ALL="${TREE_BASE} --all"
     sel=$(jd-helper tree "${ROOTS[@]}" --state "$STATE" | \
       env FZF_DEFAULT_OPTS="$FZF_OPTS" fzf --with-nth=3 --delimiter="\t" \
         --preview 'jd-helper preview --type {1} --path {4}' \
@@ -35,11 +33,11 @@ jd() {
         --bind "enter:accept" \
         --bind "change:reload(
    if [ -n \"{q}\" ]; then
-     exec ${TREE_ALL}
+     ${TREE_BASE} --search '{q}'
    else
-     exec ${TREE_BASE}
+     ${TREE_BASE}
    fi
- )"\
+ )" \
         --bind "ctrl-a:execute-silent(jd-helper expand-all --state \"$STATE\" ${ROOTS[*]})+reload($TREE_BASE)" \
         --bind "ctrl-g:execute-silent(jd-helper reset-state --state \"$STATE\")+reload($TREE_BASE)" \
         --bind "alt-n,ctrl-n:execute(jd-helper new-interactive --parent-id {2} --display \"{3}\" ${ROOTS[@]} </dev/tty >/dev/tty 2>&1)+reload($TREE_BASE)" 

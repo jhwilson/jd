@@ -89,10 +89,20 @@ pub fn parse_item(name: &str) -> Option<(String, String, Option<String>)> {
     })
 }
 
-pub fn validate_unique_codes_among_siblings(children: &[Node]) -> Result<()> {
+/// Duplicate check for one directory's children. Children reusing the
+/// directory's own code (`12.02_notes.pdf` inside `12.02_Quenched_Dark_Spot/`)
+/// follow the JD convention of stamping an item's contents with its number
+/// and are not duplicates.
+pub fn validate_unique_codes_among_siblings(
+    children: &[Node],
+    parent_code: Option<&str>,
+) -> Result<()> {
     let mut seen: BTreeSet<String> = BTreeSet::new();
     for ch in children {
         if let Some(code) = &ch.code {
+            if Some(code.as_str()) == parent_code {
+                continue;
+            }
             if !seen.insert(code.clone()) {
                 bail!("Duplicate code among siblings: {}", code);
             }
@@ -179,21 +189,38 @@ pub fn drawer_count(n: &Node) -> usize {
 
 /// Codes used by more than one node within the same root (siblings or not —
 /// a stray category 21 inside 30-39 still collides with the real 21).
-/// Returns (code, ids) groups in code order.
+/// Nodes reusing an ancestor's code (files stamped with their item's number
+/// inside its folder) are the JD convention, not duplicates, and are
+/// excluded. Returns (code, ids) groups in code order.
 pub fn duplicate_groups(tree: &Tree) -> Vec<(String, Vec<String>)> {
     use std::collections::BTreeMap;
     let mut out = Vec::new();
     for root in &tree.roots {
         let mut by_code: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        fn walk(n: &Node, m: &mut std::collections::BTreeMap<String, Vec<String>>) {
+        fn walk(
+            n: &Node,
+            ancestors: &mut Vec<String>,
+            m: &mut std::collections::BTreeMap<String, Vec<String>>,
+        ) {
             if let Some(c) = &n.code {
-                m.entry(c.clone()).or_default().push(n.id.clone());
+                if !ancestors.contains(c) {
+                    m.entry(c.clone()).or_default().push(n.id.clone());
+                }
             }
+            let pushed = if let Some(c) = &n.code {
+                ancestors.push(c.clone());
+                true
+            } else {
+                false
+            };
             for ch in &n.children {
-                walk(ch, m);
+                walk(ch, ancestors, m);
+            }
+            if pushed {
+                ancestors.pop();
             }
         }
-        walk(root, &mut by_code);
+        walk(root, &mut Vec::new(), &mut by_code);
         out.extend(by_code.into_iter().filter(|(_, ids)| ids.len() > 1));
     }
     out

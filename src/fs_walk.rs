@@ -153,7 +153,7 @@ fn scan_dir(path: &Path, is_root: bool, warnings: &mut Vec<String>) -> Result<No
                 }
             }
         }
-        if let Err(e) = validate_unique_codes_among_siblings(&children) {
+        if let Err(e) = validate_unique_codes_among_siblings(&children, code.as_deref()) {
             warnings.push(format!("{} in {}", e, path.display()));
         }
     }

@@ -505,11 +505,28 @@ mod tests {
             b"x",
         )
         .unwrap();
+        // JD convention: contents stamped with their item's number are NOT
+        // duplicates — neither of the folder nor of each other.
+        fs::write(
+            r.join("30-39_Research/31_Papers/31.01_Existing/31.01_notes.pdf"),
+            b"x",
+        )
+        .unwrap();
+        fs::write(
+            r.join("30-39_Research/31_Papers/31.01_Existing/31.01_draft.tex"),
+            b"x",
+        )
+        .unwrap();
         let tree = fs_walk::scan_roots(&[r]).unwrap();
+        // exactly one warning: the genuine Twin duplicate among 31_Papers's
+        // children — nothing from the stamped files inside 31.01_Existing
+        assert_eq!(tree.warnings.len(), 1, "warnings: {:?}", tree.warnings);
+        assert!(tree.warnings[0].contains("31_Papers"));
 
         let groups = model::duplicate_groups(&tree);
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].0, "31.01");
+        // only the two genuinely distinct 31.01 entries, not the stamped files
         assert_eq!(groups[0].1.len(), 2);
 
         // twin gets the next free code, no children to recode

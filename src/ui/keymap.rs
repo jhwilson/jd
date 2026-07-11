@@ -1,5 +1,5 @@
 pub const HINT: &str =
-    "enter open · tab fold · ^N new ^R rename ^V move ^X delete ^Z undo ^L links · F1 help";
+    "enter open · tab fold · ^N new ^R rename ^V move ^X delete ^Z undo ^L links · ^K help";
 
 pub const HELP: &str = "\
 Navigate      type to filter (spaces ok) · ↑/↓ PgUp/PgDn Home/End select
@@ -13,4 +13,5 @@ Delete        ^X — to .jd_trash/ next to the item · ^Z undoes the last delete
 Locations     ^L — a number's other homes (reMarkable, Notion, …) in .jdmeta;
               shown atop the preview · a add ('drawer 2' or a URL) · x remove
 Query         ^U clear · esc clears, then quits
+Help          ^K (or F1)
 Quit          ^Q or ^C · esc (with empty filter)";

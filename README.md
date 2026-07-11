@@ -60,7 +60,7 @@ Keybindings
 | Ctrl-L | edit locations & links (`.jdmeta`, see below) |
 | Ctrl-U | clear the filter |
 | Esc | clear filter, then quit · Ctrl-Q/Ctrl-C quit |
-| F1 | help overlay |
+| Ctrl-K | help overlay (F1 also works) |
 
 Creating things
 ---------------

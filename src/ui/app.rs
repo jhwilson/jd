@@ -370,6 +370,7 @@ impl App {
                         }
                     }
                 }
+                KeyCode::Char('k') => self.mode = Mode::Help,
                 KeyCode::Char('l') => {
                     if let Some(r) = self.selected() {
                         if r.dir_like {

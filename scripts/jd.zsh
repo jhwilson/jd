@@ -1,13 +1,12 @@
 # jd zsh wrapper function
 # Source this file from ~/.zshrc or install via install.sh
 #
-# Keybindings inside fzf (mac-friendly; avoids vim-like ctrl-h/j/k/l and F-keys):
-# - Tab: expand/collapse
-# - Enter: dir→cd, file→view, link→open
-# - Ctrl-n / Alt-n: New directory, file, or link
-# - Ctrl-r / Alt-r: Rename title
-# - Ctrl-m / Alt-m: Move
-# - Ctrl-d / Alt-d: Delete
+# jd        -> jd-helper ui (Rust TUI); dispatches its stdout action line:
+#              cd <dir> | $EDITOR <file> | open <url>. Keymap: F1 inside the TUI.
+# jd CODE   -> cd to the directory for a JD code (e.g. jd 31.01)
+# JD_ROOTS  -> space-separated root override (e.g. for the /tmp/jd_fixture sandbox)
+# jd_fzf    -> the legacy fzf pipeline, kept during the transition
+#
 # Resolve this file's directory when sourced (zsh)
 __jd_script="${(%):-%N}"
 __jd_dir="${__jd_script:A:h}"       # .../jd/scripts

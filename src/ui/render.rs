@@ -34,15 +34,37 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let mut st = ListState::default().with_selected((!indices.is_empty()).then_some(list_cursor));
     f.render_stateful_widget(list, tree_pane, &mut st);
 
-    // Preview pane follows the highlighted row (picker included).
-    let previewed = indices.get(list_cursor).and_then(|i| app.rows.get(*i));
-    let preview = previewed.map(preview_text).unwrap_or_default();
-    f.render_widget(
-        Paragraph::new(preview)
-            .block(Block::bordered().title("Preview"))
-            .wrap(Wrap { trim: false }),
-        preview_pane,
-    );
+    // Preview pane: the meta editor while active, else a preview (with the
+    // aggregated locations/links section) of the highlighted row.
+    if let Mode::MetaEdit { id, cursor } = &app.mode {
+        let entries = app
+            .meta_entries(id)
+            .map(|(_, e)| e)
+            .unwrap_or_default();
+        let lines: Vec<Line> = if entries.is_empty() {
+            vec![Line::styled(
+                "no locations or links yet — press a to add one",
+                Style::new().dim(),
+            )]
+        } else {
+            entries.iter().map(|e| Line::from(e.display())).collect()
+        };
+        let list = List::new(lines)
+            .block(Block::bordered().title("Locations & links"))
+            .highlight_style(Style::new().reversed());
+        let mut st =
+            ListState::default().with_selected((!entries.is_empty()).then_some(*cursor));
+        f.render_stateful_widget(list, preview_pane, &mut st);
+    } else {
+        let previewed = indices.get(list_cursor).and_then(|i| app.rows.get(*i));
+        let preview = previewed.map(preview_text).unwrap_or_default();
+        f.render_widget(
+            Paragraph::new(preview)
+                .block(Block::bordered().title("Preview"))
+                .wrap(Wrap { trim: false }),
+            preview_pane,
+        );
+    }
 
     // Bottom bar: an input/summary line and a hint/status line.
     let [line1_area, line2_area] =
@@ -112,12 +134,17 @@ fn styled(s: String, hit: bool) -> Span<'static> {
 
 fn preview_text(r: &Row) -> String {
     let p = std::path::Path::new(&r.path);
-    match r.node_type {
+    let body = match r.node_type {
         NodeType::File => crate::preview::preview_file(p),
         NodeType::Link => crate::preview::preview_link(p),
         _ => crate::preview::preview_dir(p),
     }
-    .unwrap_or_else(|e| format!("preview unavailable: {}", e))
+    .unwrap_or_else(|e| format!("preview unavailable: {}", e));
+    if r.meta_lines.is_empty() {
+        body
+    } else {
+        format!("{}\n\n{}", r.meta_lines.join("\n"), body)
+    }
 }
 
 fn prompt_label(kind: &super::app::PromptKind) -> &'static str {
@@ -126,6 +153,7 @@ fn prompt_label(kind: &super::app::PromptKind) -> &'static str {
         Create { .. } => "New (code title | name.ext | URL): ",
         Rename { .. } => "Rename to: ",
         LinkUrl { .. } => "URL: ",
+        MetaAdd { .. } => "Add location or URL: ",
     }
 }
 
@@ -138,9 +166,18 @@ fn bottom_lines(app: &App) -> (Line<'static>, Line<'static>) {
             } else {
                 Line::from(format!("filter: {}", app.query))
             };
-            let line2 = match &app.status {
-                Some(s) => Line::styled(s.clone(), Style::new().fg(Color::Green)),
-                None => hint(keymap::HINT),
+            let line2 = match (&app.status, app.tree.warnings.first()) {
+                (Some(s), _) => Line::styled(s.clone(), Style::new().fg(Color::Green)),
+                (None, Some(w)) => {
+                    let more = app.tree.warnings.len() - 1;
+                    let suffix = if more > 0 {
+                        format!(" (+{} more)", more)
+                    } else {
+                        String::new()
+                    };
+                    Line::styled(format!("⚠ {}{}", w, suffix), Style::new().fg(Color::Yellow))
+                }
+                (None, None) => hint(keymap::HINT),
             };
             (line1, line2)
         }
@@ -152,6 +189,10 @@ fn bottom_lines(app: &App) -> (Line<'static>, Line<'static>) {
         Mode::MovePicker { query, .. } => (
             Line::from(format!("Move to: {}", query)),
             hint("type to filter · ↑/↓ select · enter choose · esc cancel"),
+        ),
+        Mode::MetaEdit { .. } => (
+            Line::from("Locations & links"),
+            hint("a add · x remove · ↑/↓ select · esc done"),
         ),
         Mode::Message { text, error } => (
             Line::styled(
@@ -202,6 +243,10 @@ fn confirm_lines(pending: &PendingOp) -> (Line<'static>, Line<'static>) {
         ),
         PendingOp::Delete { display, .. } => (
             Line::from(format!("move {} to .jd_trash/?", display)),
+            Line::styled("y/enter confirm · n/esc cancel", Style::new().dim()),
+        ),
+        PendingOp::MetaRemove { entry, .. } => (
+            Line::from(format!("remove {}?", entry.display())),
             Line::styled("y/enter confirm · n/esc cancel", Style::new().dim()),
         ),
     }

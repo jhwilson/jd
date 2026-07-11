@@ -1,4 +1,4 @@
-use crate::ignore::is_ignored_path;
+use crate::ignore::is_ignored_entry;
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
@@ -10,7 +10,7 @@ pub fn preview_dir(path: &Path) -> Result<String> {
         if let Ok(e) = entry {
             let name = e.file_name().to_string_lossy().to_string();
             let full = path.join(e.file_name());
-            if is_ignored_path(&full) {
+            if is_ignored_entry(&full) {
                 continue;
             }
             // Only treat regular files with YYYYMMDDTTTT* prefix as dated

@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
-use jd_helper::{fs_walk, io, model, mutate, preview, resolve, state, tsv, ui};
+use jd_helper::{fs_walk, io, meta, model, mutate, preview, resolve, state, tsv, ui};
 
 #[derive(Parser, Debug)]
 #[command(name = "jd-helper", version, about = "Filesystem-first JD helper")]
@@ -30,6 +30,43 @@ enum Commands {
     ResetState(ResetStateCmd),
     ExpandAll(ExpandAllCmd),
     Ui(UiCmd),
+    /// Manage a directory node's .jdmeta locations/links
+    Meta(MetaCmd),
+}
+
+#[derive(Args, Debug)]
+struct MetaCmd {
+    #[command(subcommand)]
+    action: MetaAction,
+}
+
+#[derive(Subcommand, Debug)]
+enum MetaAction {
+    /// Print the node's locations and links
+    List {
+        #[arg(long)]
+        id: String,
+        #[arg(required = true)]
+        roots: Vec<PathBuf>,
+    },
+    /// Add an entry ('remarkable: notebook 3' or a URL with optional label)
+    Add {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        value: String,
+        #[arg(required = true)]
+        roots: Vec<PathBuf>,
+    },
+    /// Remove the entry matching the value exactly
+    Remove {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        value: String,
+        #[arg(required = true)]
+        roots: Vec<PathBuf>,
+    },
 }
 #[derive(Args, Debug)]
 struct UiCmd {
@@ -362,6 +399,38 @@ fn main() -> Result<()> {
             let state = cmd.state.unwrap_or_else(state::default_state_path);
             if let Some(action) = ui::run(&cmd.roots, &state)? {
                 println!("{}", action);
+            }
+        }
+        Commands::Meta(cmd) => {
+            fn node_dir(roots: &[PathBuf], id: &str) -> Result<PathBuf> {
+                let tree = fs_walk::scan_roots(roots)?;
+                let n = model::find_node(&tree, id)
+                    .ok_or_else(|| anyhow::anyhow!("node not found: {}", id))?;
+                let p = PathBuf::from(&n.path);
+                if !p.is_dir() {
+                    anyhow::bail!("meta entries live on directories: {}", p.display());
+                }
+                Ok(p)
+            }
+            match cmd.action {
+                MetaAction::List { id, roots } => {
+                    let dir = node_dir(&roots, &id)?;
+                    for e in meta::entries(&dir) {
+                        println!("{}", e.display());
+                    }
+                }
+                MetaAction::Add { id, value, roots } => {
+                    let dir = node_dir(&roots, &id)?;
+                    let entry = meta::Entry::from_input(&value)
+                        .ok_or_else(|| anyhow::anyhow!("empty value"))?;
+                    meta::add_entry(&dir, &entry)?;
+                }
+                MetaAction::Remove { id, value, roots } => {
+                    let dir = node_dir(&roots, &id)?;
+                    let entry = meta::Entry::from_input(&value)
+                        .ok_or_else(|| anyhow::anyhow!("empty value"))?;
+                    meta::remove_entry(&dir, &entry)?;
+                }
             }
         }
     }

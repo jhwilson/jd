@@ -23,12 +23,20 @@ pub struct Node {
     pub node_type: NodeType,
     pub location: Option<String>, // parsed from file contents (LOCATION=...)
     pub url: Option<String>,      // for link nodes only
+    // From this directory's .jdmeta: where else this number lives
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub locations: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<crate::meta::MetaLink>,
     pub children: Vec<Node>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Tree {
     pub roots: Vec<Node>,
+    // Non-fatal scan findings, e.g. duplicate sibling codes
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 pub fn make_id(path: &Path) -> String {
@@ -246,6 +254,8 @@ mod tests {
             node_type,
             location: None,
             url: None,
+            locations: vec![],
+            links: vec![],
             children,
         }
     }
@@ -268,6 +278,7 @@ mod tests {
                 NodeType::Category,
                 vec![node("a", Some("30.01"), NodeType::ItemDir, vec![])],
             )],
+            warnings: vec![],
         };
         assert_eq!(suggest_next_code(&t, "30").unwrap(), "30.02");
     }

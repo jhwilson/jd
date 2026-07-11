@@ -1,4 +1,5 @@
-use crate::ignore::is_ignored_path;
+use crate::ignore::is_ignored_entry;
+use crate::meta::{self, Entry};
 use crate::model::{
     make_id, parse_category, parse_item, parse_range, validate_unique_codes_among_siblings, Node,
     NodeType, Tree,
@@ -58,16 +59,16 @@ fn parse_location_from_file(path: &Path) -> Option<String> {
 }
 
 pub fn scan_roots(roots: &[PathBuf]) -> Result<Tree> {
-    let mut tree = Tree { roots: Vec::new() };
+    let mut tree = Tree::default();
     for root in roots {
         let root = root.canonicalize()?;
-        let node = scan_dir(&root, true)?;
+        let node = scan_dir(&root, true, &mut tree.warnings)?;
         tree.roots.push(node);
     }
     Ok(tree)
 }
 
-fn scan_dir(path: &Path, is_root: bool) -> Result<Node> {
+fn scan_dir(path: &Path, is_root: bool, warnings: &mut Vec<String>) -> Result<Node> {
     let name = path
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
@@ -84,12 +85,30 @@ fn scan_dir(path: &Path, is_root: bool) -> Result<Node> {
     };
 
     let mut children: Vec<Node> = Vec::new();
+    let mut locations: Vec<String> = Vec::new();
+    let mut links: Vec<crate::meta::MetaLink> = Vec::new();
     if path.is_dir() {
-        let mut entries: Vec<PathBuf> = fs::read_dir(path)?
-            .filter_map(|e| e.ok().map(|d| d.path()))
-            .filter(|p| !is_ignored_path(p))
-            .collect();
+        let mut entries: Vec<PathBuf> = Vec::new();
+        let mut has_meta = false;
+        for e in fs::read_dir(path)?.filter_map(|e| e.ok()) {
+            let p = e.path();
+            if p.file_name().and_then(|n| n.to_str()) == Some(meta::META_FILE) {
+                has_meta = true;
+                continue;
+            }
+            if !is_ignored_entry(&p) {
+                entries.push(p);
+            }
+        }
         entries.sort();
+        if has_meta {
+            for entry in meta::entries(path) {
+                match entry {
+                    Entry::Location(s) => locations.push(s),
+                    Entry::Link(l) => links.push(l),
+                }
+            }
+        }
         for child in entries {
             if child.is_dir() {
                 let cname = child.file_name().unwrap().to_string_lossy().to_string();
@@ -97,7 +116,7 @@ fn scan_dir(path: &Path, is_root: bool) -> Result<Node> {
                     || parse_category(&cname).is_some()
                     || parse_item(&cname).is_some();
                 if is_jd_dir {
-                    children.push(scan_dir(&child, false)?);
+                    children.push(scan_dir(&child, false, warnings)?);
                 } else {
                     // skip non-conforming directories
                     continue;
@@ -127,12 +146,16 @@ fn scan_dir(path: &Path, is_root: bool) -> Result<Node> {
                         node_type: nt,
                         location,
                         url: url_opt,
+                        locations: vec![],
+                        links: vec![],
                         children: vec![],
                     });
                 }
             }
         }
-        let _ = validate_unique_codes_among_siblings(&children);
+        if let Err(e) = validate_unique_codes_among_siblings(&children) {
+            warnings.push(format!("{} in {}", e, path.display()));
+        }
     }
 
     let id = make_id(path);
@@ -150,6 +173,8 @@ fn scan_dir(path: &Path, is_root: bool) -> Result<Node> {
         node_type: node_type_final,
         location: None,
         url: None,
+        locations,
+        links,
         children,
     })
 }

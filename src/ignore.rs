@@ -1,5 +1,5 @@
 // Centralized ignore rules for scanning and previewing
-use std::path::{Component, Path};
+use std::path::Path;
 
 fn file_name_lower(path: &Path) -> String {
     path.file_name()
@@ -66,17 +66,11 @@ pub fn is_ignored_file_name(name: &str) -> bool {
     false
 }
 
-pub fn is_ignored_path(path: &Path) -> bool {
-    // If ANY ancestor component is an ignored directory name, ignore the whole path
-    for comp in path.components() {
-        if let Component::Normal(os) = comp {
-            let c = os.to_string_lossy().to_string();
-            if is_ignored_dir_name(&c) {
-                return true;
-            }
-        }
-    }
-    // Otherwise apply base-name checks
+/// Ignore check for a single directory entry, by its own name only. Scanning
+/// and previews recurse top-down, so ancestor filtering happens naturally —
+/// checking ancestor components here would wrongly ignore everything under
+/// e.g. /tmp or any user directory that happens to be named "cache".
+pub fn is_ignored_entry(path: &Path) -> bool {
     let name = file_name_lower(path);
     if name.is_empty() {
         return false;

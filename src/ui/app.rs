@@ -5,7 +5,7 @@ use super::{
     search::Search,
 };
 use crate::{
-    fs_walk,
+    fs_walk, meta,
     model::{self, NodeType},
     mutate,
     plan::{self, CreatePlan, MovePlan, PlanKind},
@@ -33,6 +33,9 @@ pub enum PromptKind {
         input: String,
         anchor_id: String,
     },
+    /// Add a location ("remarkable: notebook 3") or link (anything with ://)
+    /// to the node's .jdmeta.
+    MetaAdd { id: String },
 }
 
 pub enum PendingOp {
@@ -47,6 +50,11 @@ pub enum PendingOp {
         id: String,
         path: PathBuf,
         display: String,
+    },
+    MetaRemove {
+        id: String,
+        dir: PathBuf,
+        entry: meta::Entry,
     },
 }
 
@@ -68,6 +76,11 @@ pub enum Mode {
     Message {
         text: String,
         error: bool,
+    },
+    /// Edit the selected node's locations/links (.jdmeta).
+    MetaEdit {
+        id: String,
+        cursor: usize,
     },
     Help,
 }
@@ -221,9 +234,63 @@ impl App {
                 self.on_move_picker(src_id, query, cursor, candidates, k);
                 None
             }
+            Mode::MetaEdit { id, cursor } => {
+                self.on_meta_edit(id, cursor, k);
+                None
+            }
             // Message and Help are dismissed by any key.
             Mode::Message { .. } | Mode::Help => None,
         }
+    }
+
+    /// The node's own .jdmeta entries (locations first, then links) and the
+    /// directory they live in.
+    pub fn meta_entries(&self, id: &str) -> Option<(PathBuf, Vec<meta::Entry>)> {
+        let n = model::find_node(&self.tree, id)?;
+        let mut entries: Vec<meta::Entry> = n
+            .locations
+            .iter()
+            .cloned()
+            .map(meta::Entry::Location)
+            .collect();
+        entries.extend(n.links.iter().cloned().map(meta::Entry::Link));
+        Some((PathBuf::from(&n.path), entries))
+    }
+
+    fn on_meta_edit(&mut self, id: String, mut cursor: usize, k: KeyEvent) {
+        let Some((dir, entries)) = self.meta_entries(&id) else {
+            self.mode = Mode::Browse;
+            return;
+        };
+        match k.code {
+            KeyCode::Esc => {
+                self.mode = Mode::Browse;
+                return;
+            }
+            KeyCode::Char('a') => {
+                self.mode = Mode::Prompt {
+                    kind: PromptKind::MetaAdd { id },
+                    editor: LineEditor::default(),
+                };
+                return;
+            }
+            KeyCode::Char('x') => {
+                if let Some(entry) = entries.get(cursor) {
+                    self.mode = Mode::Confirm {
+                        pending: PendingOp::MetaRemove {
+                            id,
+                            dir,
+                            entry: entry.clone(),
+                        },
+                    };
+                    return;
+                }
+            }
+            KeyCode::Up => cursor = cursor.saturating_sub(1),
+            KeyCode::Down => cursor = (cursor + 1).min(entries.len().saturating_sub(1)),
+            _ => {}
+        }
+        self.mode = Mode::MetaEdit { id, cursor };
     }
 
     fn on_browse(&mut self, k: KeyEvent) -> Option<Outcome> {
@@ -300,6 +367,18 @@ impl App {
                                     display: r.display.clone(),
                                 },
                             };
+                        }
+                    }
+                }
+                KeyCode::Char('l') => {
+                    if let Some(r) = self.selected() {
+                        if r.dir_like {
+                            self.mode = Mode::MetaEdit {
+                                id: r.id.clone(),
+                                cursor: 0,
+                            };
+                        } else {
+                            self.message("locations live on directories — select a folder");
                         }
                     }
                 }
@@ -429,6 +508,23 @@ impl App {
                             },
                         };
                     }
+                    PromptKind::MetaAdd { id } => {
+                        let Some(entry) = meta::Entry::from_input(&input) else {
+                            self.mode = Mode::MetaEdit { id, cursor: 0 };
+                            return;
+                        };
+                        let Some((dir, _)) = self.meta_entries(&id) else {
+                            self.mode = Mode::Browse;
+                            return;
+                        };
+                        match meta::add_entry(&dir, &entry) {
+                            Ok(()) => {
+                                let _ = self.rescan(Some(&id));
+                                self.mode = Mode::MetaEdit { id, cursor: 0 };
+                            }
+                            Err(e) => self.message(e.to_string()),
+                        }
+                    }
                 }
             }
             _ => {
@@ -478,6 +574,27 @@ impl App {
     }
 
     fn on_confirm(&mut self, pending: PendingOp, k: KeyEvent) {
+        // Meta removals return to the meta editor, not Browse.
+        if let PendingOp::MetaRemove { id, dir, entry } = &pending {
+            match k.code {
+                KeyCode::Esc | KeyCode::Char('n') => {
+                    self.mode = Mode::MetaEdit {
+                        id: id.clone(),
+                        cursor: 0,
+                    };
+                }
+                KeyCode::Enter | KeyCode::Char('y') => match meta::remove_entry(dir, entry) {
+                    Ok(()) => {
+                        let id = id.clone();
+                        let _ = self.rescan(Some(&id));
+                        self.mode = Mode::MetaEdit { id, cursor: 0 };
+                    }
+                    Err(e) => self.message(e.to_string()),
+                },
+                _ => self.mode = Mode::Confirm { pending },
+            }
+            return;
+        }
         // d/f/l override the inferred kind for pending creates.
         if let PendingOp::Create {
             input, anchor_id, ..
@@ -513,6 +630,7 @@ impl App {
                             (None, format!("trashed {} · ctrl-z to undo", display))
                         })
                     }
+                    PendingOp::MetaRemove { .. } => unreachable!("handled above"),
                 };
                 match result {
                     Ok((select, status)) => {

@@ -209,6 +209,42 @@ fn enter_emits_cd_action_for_dirs() {
 }
 
 #[test]
+fn meta_add_and_remove_via_editor() {
+    let mut h = harness();
+    move_cursor_to(&mut h.app, "99-99_Test_Range");
+    // ctrl-l opens the editor; 'a' prompts; classified as a location
+    ctrl(&mut h.app, 'l');
+    assert!(matches!(h.app.mode, Mode::MetaEdit { .. }));
+    h.app.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
+    type_str(&mut h.app, "remarkable: notebook 3");
+    h.app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    let meta_path = h.root.join("99-99_Test_Range/.jdmeta");
+    assert_eq!(
+        fs::read_to_string(&meta_path).unwrap(),
+        "LOCATION=remarkable: notebook 3\n"
+    );
+    // a URL becomes a LINK entry
+    h.app.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
+    type_str(&mut h.app, "https://notion.so/abc Colloquium page");
+    h.app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(fs::read_to_string(&meta_path)
+        .unwrap()
+        .contains("LINK=https://notion.so/abc Colloquium page"));
+    // the .jdmeta file itself never appears in the tree
+    assert!(!h.app.rows.iter().any(|r| r.path.ends_with(".jdmeta")));
+    // aggregated into the row's preview section
+    move_cursor_to(&mut h.app, "99-99_Test_Range");
+    let row = h.app.selected().unwrap();
+    assert!(row.meta_lines.iter().any(|l| l.contains("notebook 3")));
+    // remove the location (cursor 0 = first entry), confirmed
+    ctrl(&mut h.app, 'l');
+    h.app.handle_key(KeyCode::Char('x'), KeyModifiers::NONE);
+    h.app.handle_key(KeyCode::Char('y'), KeyModifiers::NONE);
+    assert!(matches!(h.app.mode, Mode::MetaEdit { .. }));
+    assert!(!fs::read_to_string(&meta_path).unwrap().contains("LOCATION"));
+}
+
+#[test]
 fn render_smoke() {
     let mut h = harness();
     ctrl(&mut h.app, 'a'); // expand all so category rows are on screen

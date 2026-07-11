@@ -13,6 +13,40 @@ pub struct Row {
     pub node_type: NodeType,
     pub dir_like: bool,
     pub url: Option<String>,
+    /// Aggregated "where else does this number live" lines for the preview:
+    /// this node's .jdmeta locations/links plus child link items and child
+    /// LOCATION= file items.
+    pub meta_lines: Vec<String>,
+}
+
+fn meta_lines(n: &Node) -> Vec<String> {
+    let mut out = Vec::new();
+    for loc in &n.locations {
+        out.push(format!("⌂ {}", loc));
+    }
+    for l in &n.links {
+        out.push(match &l.label {
+            Some(lb) => format!("↗ {} — {}", lb, l.url),
+            None => format!("↗ {}", l.url),
+        });
+    }
+    for c in &n.children {
+        match c.node_type {
+            NodeType::Link => {
+                if let Some(u) = &c.url {
+                    out.push(format!("↗ {} — {}", c.title, u));
+                }
+            }
+            NodeType::File => {
+                if let Some(loc) = &c.location {
+                    out.push(format!("⌂ {} — {}", loc, c.title));
+                }
+            }
+            _ => {}
+        }
+    }
+    out.truncate(12);
+    out
 }
 
 pub fn flatten(t: &Tree) -> Vec<Row> {
@@ -37,6 +71,7 @@ pub fn flatten(t: &Tree) -> Vec<Row> {
             node_type: n.node_type.clone(),
             dir_like,
             url: n.url.clone(),
+            meta_lines: if dir_like { meta_lines(n) } else { Vec::new() },
         });
         let me = out.len() - 1;
         for c in &n.children {

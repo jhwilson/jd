@@ -1,5 +1,5 @@
 // Centralized ignore rules for scanning and previewing
-use std::path::{Path, Component};
+use std::path::{Component, Path};
 
 fn file_name_lower(path: &Path) -> String {
     path.file_name()
@@ -9,8 +9,18 @@ fn file_name_lower(path: &Path) -> String {
 
 pub fn is_ignored_dir_name(name: &str) -> bool {
     let n = name.to_lowercase();
-    matches!(n.as_str(),
-        ".git" | ".obsidian" | ".auctex-auto" | "tmp" | "temp" | "cache" | ".cache" | ".tmp" | "logs" | ".jd_trash"
+    matches!(
+        n.as_str(),
+        ".git"
+            | ".obsidian"
+            | ".auctex-auto"
+            | "tmp"
+            | "temp"
+            | "cache"
+            | ".cache"
+            | ".tmp"
+            | "logs"
+            | ".jd_trash"
     )
 }
 
@@ -21,7 +31,12 @@ pub fn is_ignored_file_name(name: &str) -> bool {
         return true;
     }
     // Logs and backups
-    if n.ends_with(".log") || n == "logs" || n.ends_with(".bak") || n.ends_with(".backup") || n.ends_with(".old") {
+    if n.ends_with(".log")
+        || n == "logs"
+        || n.ends_with(".bak")
+        || n.ends_with(".backup")
+        || n.ends_with(".old")
+    {
         return true;
     }
     // LaTeX auxiliary files (allow PDFs)
@@ -56,13 +71,19 @@ pub fn is_ignored_path(path: &Path) -> bool {
     for comp in path.components() {
         if let Component::Normal(os) = comp {
             let c = os.to_string_lossy().to_string();
-            if is_ignored_dir_name(&c) { return true; }
+            if is_ignored_dir_name(&c) {
+                return true;
+            }
         }
     }
     // Otherwise apply base-name checks
     let name = file_name_lower(path);
-    if name.is_empty() { return false; }
-    if path.is_dir() { is_ignored_dir_name(&name) } else { is_ignored_file_name(&name) }
+    if name.is_empty() {
+        return false;
+    }
+    if path.is_dir() {
+        is_ignored_dir_name(&name)
+    } else {
+        is_ignored_file_name(&name)
+    }
 }
-
-

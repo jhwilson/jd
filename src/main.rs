@@ -1,11 +1,11 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand, Args, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
-use jd_helper::{fs_walk, io, model, mutate, preview, resolve, state, tsv};
+use jd_helper::{fs_walk, io, model, mutate, preview, resolve, state, tsv, ui};
 
 #[derive(Parser, Debug)]
-#[command(name = "jd-helper", version, about = "Filesystem-first JD helper")] 
+#[command(name = "jd-helper", version, about = "Filesystem-first JD helper")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -29,32 +29,44 @@ enum Commands {
     WriteIndex(WriteIndexCmd),
     ResetState(ResetStateCmd),
     ExpandAll(ExpandAllCmd),
+    Ui(UiCmd),
+}
+#[derive(Args, Debug)]
+struct UiCmd {
+    #[arg(required = true)]
+    roots: Vec<PathBuf>,
+    #[arg(long)]
+    state: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
 struct ScanCmd {
-    #[arg(required=true)]
+    #[arg(required = true)]
     roots: Vec<PathBuf>,
 }
 
 #[derive(Args, Debug)]
 struct TreeCmd {
-    #[arg(required=true)]
+    #[arg(required = true)]
     roots: Vec<PathBuf>,
     #[arg(long)]
     filter: Option<String>,
-    #[arg(long, help="Full-tree fuzzy search; ignores fold state while active")]
+    #[arg(long, help = "Full-tree fuzzy search; ignores fold state while active")]
     search: Option<String>,
     #[arg(long)]
     state: Option<PathBuf>,
-    #[arg(long, help="List all nodes regardless of fold state")] 
+    #[arg(long, help = "List all nodes regardless of fold state")]
     all: bool,
-    #[arg(long, help="Do not auto-expand root level")] 
+    #[arg(long, help = "Do not auto-expand root level")]
     collapse_root: bool,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, ValueEnum)]
-enum PreviewType { Dir, File, Link }
+enum PreviewType {
+    Dir,
+    File,
+    Link,
+}
 
 #[derive(Args, Debug)]
 struct PreviewCmd {
@@ -65,16 +77,35 @@ struct PreviewCmd {
 }
 
 #[derive(Args, Debug)]
-struct ResolveCmd { code: String, #[arg(required=true)] roots: Vec<PathBuf> }
+struct ResolveCmd {
+    code: String,
+    #[arg(required = true)]
+    roots: Vec<PathBuf>,
+}
 
 #[derive(Args, Debug)]
-struct ParentCmd { id: String, #[arg(required=true)] roots: Vec<PathBuf>, #[arg(long)] path: bool, #[arg(long)] both: bool }
+struct ParentCmd {
+    id: String,
+    #[arg(required = true)]
+    roots: Vec<PathBuf>,
+    #[arg(long)]
+    path: bool,
+    #[arg(long)]
+    both: bool,
+}
 
 #[derive(Args, Debug)]
-struct CodesCmd { #[arg(required=true)] roots: Vec<PathBuf> }
+struct CodesCmd {
+    #[arg(required = true)]
+    roots: Vec<PathBuf>,
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, ValueEnum)]
-enum NewKind { Dir, File, Link }
+enum NewKind {
+    Dir,
+    File,
+    Link,
+}
 
 #[derive(Args, Debug)]
 struct NewCmd {
@@ -88,7 +119,7 @@ struct NewCmd {
     url: Option<String>,
     #[arg(long)]
     location: Option<String>,
-    #[arg(required=true)]
+    #[arg(required = true)]
     roots: Vec<PathBuf>,
 }
 
@@ -96,37 +127,79 @@ struct NewCmd {
 struct NewInteractiveCmd {
     #[arg(long, value_enum)]
     kind: Option<NewKind>,
-    #[arg(long, value_name="ID")]
+    #[arg(long, value_name = "ID")]
     parent_id: String,
-    #[arg(long, value_name="DISPLAY")]
+    #[arg(long, value_name = "DISPLAY")]
     display: String,
-    #[arg(required=true)]
+    #[arg(required = true)]
     roots: Vec<PathBuf>,
 }
 
 #[derive(Args, Debug)]
-struct RenameCmd { #[arg(long)] id: String, #[arg(long)] name: String, #[arg(required=true)] roots: Vec<PathBuf> }
+struct RenameCmd {
+    #[arg(long)]
+    id: String,
+    #[arg(long)]
+    name: String,
+    #[arg(required = true)]
+    roots: Vec<PathBuf>,
+}
 
 #[derive(Args, Debug)]
-struct MoveCmd { #[arg(long)] id: String, #[arg(long)] parent: String, #[arg(required=true)] roots: Vec<PathBuf> }
+struct MoveCmd {
+    #[arg(long)]
+    id: String,
+    #[arg(long)]
+    parent: String,
+    #[arg(required = true)]
+    roots: Vec<PathBuf>,
+}
 
 #[derive(Args, Debug)]
-struct DeleteCmd { #[arg(long)] id: String, #[arg(required=true)] roots: Vec<PathBuf> }
+struct DeleteCmd {
+    #[arg(long)]
+    id: String,
+    #[arg(required = true)]
+    roots: Vec<PathBuf>,
+}
 
 #[derive(Args, Debug)]
-struct SuggestCmd { #[arg(long)] parent: String, #[arg(required=true)] roots: Vec<PathBuf> }
+struct SuggestCmd {
+    #[arg(long)]
+    parent: String,
+    #[arg(required = true)]
+    roots: Vec<PathBuf>,
+}
 
 #[derive(Args, Debug)]
-struct ToggleCmd { #[arg(long)] state: PathBuf, #[arg(long)] id: String }
+struct ToggleCmd {
+    #[arg(long)]
+    state: PathBuf,
+    #[arg(long)]
+    id: String,
+}
 
 #[derive(Args, Debug)]
-struct WriteIndexCmd { #[arg(required=true)] roots: Vec<PathBuf>, #[arg(long)] out: Option<PathBuf> }
+struct WriteIndexCmd {
+    #[arg(required = true)]
+    roots: Vec<PathBuf>,
+    #[arg(long)]
+    out: Option<PathBuf>,
+}
 
 #[derive(Args, Debug)]
-struct ResetStateCmd { #[arg(long)] state: PathBuf }
+struct ResetStateCmd {
+    #[arg(long)]
+    state: PathBuf,
+}
 
 #[derive(Args, Debug)]
-struct ExpandAllCmd { #[arg(long)] state: PathBuf, #[arg(required=true)] roots: Vec<PathBuf> }
+struct ExpandAllCmd {
+    #[arg(long)]
+    state: PathBuf,
+    #[arg(required = true)]
+    roots: Vec<PathBuf>,
+}
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -141,14 +214,23 @@ fn main() -> Result<()> {
             let expanded = state::load_state_or_default(state_path.as_ref())?;
             // When --search is provided, traverse all nodes and apply fuzzy to entire tree;
             // treat empty search string as no search
-            let search_opt = cmd.search.as_ref().and_then(|s| if s.is_empty() { None } else { Some(s.as_str()) });
+            let search_opt =
+                cmd.search
+                    .as_ref()
+                    .and_then(|s| if s.is_empty() { None } else { Some(s.as_str()) });
             let query = search_opt.or(cmd.filter.as_deref());
             let show_all = cmd.all || search_opt.is_some();
             let lines = tsv::flatten_to_tsv(&tree, query, &expanded, show_all, cmd.collapse_root);
-            for l in lines { println!("{}", l); }
+            for l in lines {
+                println!("{}", l);
+            }
         }
         Commands::Preview(cmd) => {
-            let out = match cmd.r#type { PreviewType::Dir => preview::preview_dir(&cmd.path), PreviewType::File => preview::preview_file(&cmd.path), PreviewType::Link => preview::preview_link(&cmd.path) }?;
+            let out = match cmd.r#type {
+                PreviewType::Dir => preview::preview_dir(&cmd.path),
+                PreviewType::File => preview::preview_file(&cmd.path),
+                PreviewType::Link => preview::preview_link(&cmd.path),
+            }?;
             print!("{}", out);
         }
         Commands::Resolve(cmd) => {
@@ -162,31 +244,74 @@ fn main() -> Result<()> {
             if let Some(pid) = model::find_parent_id(&tree, &id) {
                 if cmd.path || cmd.both {
                     // find path of parent
-                    fn find<'a>(n: &'a model::Node, id: &str) -> Option<&'a model::Node> { if n.id==id { return Some(n);} for c in &n.children { if let Some(x)=find(c,id){return Some(x);} } None }
+                    fn find<'a>(n: &'a model::Node, id: &str) -> Option<&'a model::Node> {
+                        if n.id == id {
+                            return Some(n);
+                        }
+                        for c in &n.children {
+                            if let Some(x) = find(c, id) {
+                                return Some(x);
+                            }
+                        }
+                        None
+                    }
                     let mut ppath = None;
-                    for r in &tree.roots { if let Some(n)=find(r,&pid){ ppath = Some(n.path.clone()); break; } }
-                    if cmd.both { println!("{}\t{}", pid, ppath.unwrap_or_default()); }
-                    else { println!("{}", ppath.unwrap_or_default()); }
+                    for r in &tree.roots {
+                        if let Some(n) = find(r, &pid) {
+                            ppath = Some(n.path.clone());
+                            break;
+                        }
+                    }
+                    if cmd.both {
+                        println!("{}\t{}", pid, ppath.unwrap_or_default());
+                    } else {
+                        println!("{}", ppath.unwrap_or_default());
+                    }
                 } else {
                     println!("{}", pid);
                 }
-            } else { std::process::exit(1); }
+            } else {
+                std::process::exit(1);
+            }
         }
         Commands::Codes(cmd) => {
             let tree = fs_walk::scan_roots(&cmd.roots)?;
-            for c in model::all_codes(&tree) { println!("{}", c); }
+            for c in model::all_codes(&tree) {
+                println!("{}", c);
+            }
         }
         Commands::New(cmd) => {
-            let kind = match cmd.kind { NewKind::Dir => mutate::NewKind::Dir, NewKind::File => mutate::NewKind::File, NewKind::Link => mutate::NewKind::Link };
-            mutate::create(&cmd.roots, kind, &cmd.parent, &cmd.name, cmd.url.as_deref(), cmd.location.as_deref())?;
+            let kind = match cmd.kind {
+                NewKind::Dir => mutate::NewKind::Dir,
+                NewKind::File => mutate::NewKind::File,
+                NewKind::Link => mutate::NewKind::Link,
+            };
+            mutate::create(
+                &cmd.roots,
+                kind,
+                &cmd.parent,
+                &cmd.name,
+                cmd.url.as_deref(),
+                cmd.location.as_deref(),
+            )?;
         }
         Commands::NewInteractive(cmd) => {
-            let pre = cmd.kind.map(|k| match k { NewKind::Dir => mutate::NewKind::Dir, NewKind::File => mutate::NewKind::File, NewKind::Link => mutate::NewKind::Link });
+            let pre = cmd.kind.map(|k| match k {
+                NewKind::Dir => mutate::NewKind::Dir,
+                NewKind::File => mutate::NewKind::File,
+                NewKind::Link => mutate::NewKind::Link,
+            });
             mutate::new_interactive_any(&cmd.roots, &cmd.parent_id, &cmd.display, pre)?;
         }
-        Commands::Rename(cmd) => { mutate::rename(&cmd.roots, &cmd.id, &cmd.name)?; }
-        Commands::Move(cmd) => { mutate::move_node(&cmd.roots, &cmd.id, &cmd.parent)?; }
-        Commands::Delete(cmd) => { mutate::delete_node(&cmd.roots, &cmd.id)?; }
+        Commands::Rename(cmd) => {
+            mutate::rename(&cmd.roots, &cmd.id, &cmd.name)?;
+        }
+        Commands::Move(cmd) => {
+            mutate::move_node(&cmd.roots, &cmd.id, &cmd.parent)?;
+        }
+        Commands::Delete(cmd) => {
+            mutate::delete_node(&cmd.roots, &cmd.id)?;
+        }
         Commands::Suggest(cmd) => {
             let tree = fs_walk::scan_roots(&cmd.roots)?;
             let next = model::suggest_next_code(&tree, &cmd.parent)?;
@@ -203,26 +328,44 @@ fn main() -> Result<()> {
             println!("{}", out.display());
         }
         Commands::ResetState(cmd) => {
-            let empty = tsv::ExpandedState { expanded: Default::default() };
+            let empty = tsv::ExpandedState {
+                expanded: Default::default(),
+            };
             state::save_state(&cmd.state, &empty)?;
         }
         Commands::ExpandAll(cmd) => {
             let tree = fs_walk::scan_roots(&cmd.roots)?;
             fn collect_ids(node: &model::Node, out: &mut Vec<String>) {
-                let is_dir_like = matches!(node.node_type, model::NodeType::Range | model::NodeType::Category | model::NodeType::ItemDir | model::NodeType::Other);
-                if is_dir_like { out.push(node.id.clone()); }
-                for ch in &node.children { collect_ids(ch, out); }
+                let is_dir_like = matches!(
+                    node.node_type,
+                    model::NodeType::Range
+                        | model::NodeType::Category
+                        | model::NodeType::ItemDir
+                        | model::NodeType::Other
+                );
+                if is_dir_like {
+                    out.push(node.id.clone());
+                }
+                for ch in &node.children {
+                    collect_ids(ch, out);
+                }
             }
             let mut ids = Vec::new();
-            for r in &tree.roots { collect_ids(r, &mut ids); }
+            for r in &tree.roots {
+                collect_ids(r, &mut ids);
+            }
             let expanded: std::collections::BTreeSet<String> = ids.into_iter().collect();
             let st = tsv::ExpandedState { expanded };
             state::save_state(&cmd.state, &st)?;
+        }
+        Commands::Ui(cmd) => {
+            let state = cmd.state.unwrap_or_else(state::default_state_path);
+            if let Some(action) = ui::run(&cmd.roots, &state)? {
+                println!("{}", action);
+            }
         }
     }
     Ok(())
 }
 
 // interactive helpers moved into mutate module
-
-

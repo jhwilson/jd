@@ -1,0 +1,14 @@
+pub const HINT: &str =
+    "enter open · tab fold · ^N new ^R rename ^V move ^X delete ^Z undo · F1 help · esc quit";
+
+pub const HELP: &str = "\
+Navigate      type to filter (spaces ok) · ↑/↓ PgUp/PgDn Home/End select
+Fold          tab toggle · →/← expand/collapse · ^A expand all · ^G collapse all
+Open          enter — dir: cd · file: $EDITOR · link: open URL
+Create        ^N — one prompt: '21.04 Title' | 'Title' | 'notes.md' | paste a URL
+              kind is inferred; d/f/l in the confirm step overrides it
+Rename        ^R — edits the title, the code is preserved
+Move          ^V — pick a destination; items moved under a category are recoded
+Delete        ^X — to .jd_trash/ next to the item · ^Z undoes the last delete
+Query         ^U clear · esc clears, then quits
+Quit          ^Q or ^C · esc (with empty filter)";

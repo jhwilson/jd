@@ -15,7 +15,7 @@ __jd_root="${__jd_dir:h}"           # .../jd
 export PATH="$__jd_root/target/release:$PATH"
 unset __jd_script __jd_dir __jd_root
 
-jd() {
+jd_fzf() {
   local STATE="$HOME/.cache/jd/state.json"
   local ROOTS=("/Users/justin/R50_Research")
 
@@ -78,4 +78,16 @@ jd() {
   fi
 }
 
+jd() {
+  local ROOTS=(${(s: :)JD_ROOTS:-/Users/justin/R50_Research})
+  if [[ -n "$1" ]]; then builtin cd -- "$(jd-helper resolve "$1" $ROOTS)" || return 1; return; fi
+  local out; out=$(jd-helper ui $ROOTS --state "$HOME/.cache/jd/state.json") || return
+  [[ -z "$out" ]] && return 0
+  local action arg; IFS=$'\t' read -r action arg <<< "$out"
+  case $action in
+    cd)   builtin cd -- "$arg" ;;
+    edit) "${EDITOR:-vim}" -- "$arg" ;;
+    open) open "$arg" ;;
+  esac
+}
 

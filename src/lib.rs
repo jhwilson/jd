@@ -1,10 +1,11 @@
-pub mod model;
 pub mod fs_walk;
-pub mod tsv;
-pub mod preview;
-pub mod state;
-pub mod resolve;
-pub mod mutate;
-pub mod io;
 pub mod ignore;
-
+pub mod io;
+pub mod model;
+pub mod mutate;
+pub mod plan;
+pub mod preview;
+pub mod resolve;
+pub mod state;
+pub mod tsv;
+pub mod ui;

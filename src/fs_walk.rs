@@ -1,10 +1,13 @@
-use crate::model::{Node, NodeType, Tree, make_id, parse_range, parse_category, parse_item, validate_unique_codes_among_siblings};
 use crate::ignore::is_ignored_path;
-use anyhow::{Result};
-use std::fs;
-use std::path::{Path, PathBuf};
+use crate::model::{
+    make_id, parse_category, parse_item, parse_range, validate_unique_codes_among_siblings, Node,
+    NodeType, Tree,
+};
+use anyhow::Result;
 use plist::Value as PlistValue;
 use regex::Regex;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 fn parse_webloc_url(path: &Path) -> Option<String> {
     if let Ok(mut f) = fs::File::open(path) {
@@ -12,7 +15,11 @@ fn parse_webloc_url(path: &Path) -> Option<String> {
             if let Some(url) = v.as_dictionary()?.get("URL").and_then(|u| u.as_string()) {
                 return Some(url.to_string());
             }
-            if let Some(url) = v.as_dictionary()?.get("URLString").and_then(|u| u.as_string()) {
+            if let Some(url) = v
+                .as_dictionary()?
+                .get("URLString")
+                .and_then(|u| u.as_string())
+            {
                 return Some(url.to_string());
             }
         }
@@ -24,11 +31,17 @@ fn parse_url_file(path: &Path) -> Option<String> {
     // INI-like .url files: [InternetShortcut]\nURL=...
     if let Ok(s) = fs::read_to_string(path) {
         for line in s.lines() {
-            if let Some(rest) = line.strip_prefix("URL=") { return Some(rest.trim().to_string()); }
+            if let Some(rest) = line.strip_prefix("URL=") {
+                return Some(rest.trim().to_string());
+            }
         }
         // fallback: first URL-looking token
-        static RE: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| Regex::new(r"(?i)\b(https?://\S+|obsidian://\S+|file://\S+)").unwrap());
-        if let Some(c) = RE.captures(&s) { return Some(c[1].to_string()); }
+        static RE: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| {
+            Regex::new(r"(?i)\b(https?://\S+|obsidian://\S+|file://\S+)").unwrap()
+        });
+        if let Some(c) = RE.captures(&s) {
+            return Some(c[1].to_string());
+        }
     }
     None
 }
@@ -36,7 +49,9 @@ fn parse_url_file(path: &Path) -> Option<String> {
 fn parse_location_from_file(path: &Path) -> Option<String> {
     if let Ok(s) = fs::read_to_string(path) {
         for line in s.lines() {
-            if let Some(rest) = line.strip_prefix("LOCATION=") { return Some(rest.trim().to_string()); }
+            if let Some(rest) = line.strip_prefix("LOCATION=") {
+                return Some(rest.trim().to_string());
+            }
         }
     }
     None
@@ -53,12 +68,20 @@ pub fn scan_roots(roots: &[PathBuf]) -> Result<Tree> {
 }
 
 fn scan_dir(path: &Path, is_root: bool) -> Result<Node> {
-    let name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| path.display().to_string());
+    let name = path
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.display().to_string());
     // classify by name
-    let (code, title, node_type) = if let Some((code, title)) = parse_range(&name) { (Some(code), title, NodeType::Range) } 
-        else if let Some((code, title)) = parse_category(&name) { (Some(code), title, NodeType::Category) }
-        else if let Some((code, title, _ext)) = parse_item(&name) { (Some(code), title, NodeType::ItemDir) }
-        else { (None, name.clone(), NodeType::Other) };
+    let (code, title, node_type) = if let Some((code, title)) = parse_range(&name) {
+        (Some(code), title, NodeType::Range)
+    } else if let Some((code, title)) = parse_category(&name) {
+        (Some(code), title, NodeType::Category)
+    } else if let Some((code, title, _ext)) = parse_item(&name) {
+        (Some(code), title, NodeType::ItemDir)
+    } else {
+        (None, name.clone(), NodeType::Other)
+    };
 
     let mut children: Vec<Node> = Vec::new();
     if path.is_dir() {
@@ -70,7 +93,9 @@ fn scan_dir(path: &Path, is_root: bool) -> Result<Node> {
         for child in entries {
             if child.is_dir() {
                 let cname = child.file_name().unwrap().to_string_lossy().to_string();
-                let is_jd_dir = parse_range(&cname).is_some() || parse_category(&cname).is_some() || parse_item(&cname).is_some();
+                let is_jd_dir = parse_range(&cname).is_some()
+                    || parse_category(&cname).is_some()
+                    || parse_item(&cname).is_some();
                 if is_jd_dir {
                     children.push(scan_dir(&child, false)?);
                 } else {
@@ -94,7 +119,16 @@ fn scan_dir(path: &Path, is_root: bool) -> Result<Node> {
                             (NodeType::File, None, loc)
                         }
                     };
-                    children.push(Node { id: make_id(&child), code: Some(code), title, path: child.to_string_lossy().to_string(), node_type: nt, location, url: url_opt, children: vec![] });
+                    children.push(Node {
+                        id: make_id(&child),
+                        code: Some(code),
+                        title,
+                        path: child.to_string_lossy().to_string(),
+                        node_type: nt,
+                        location,
+                        url: url_opt,
+                        children: vec![],
+                    });
                 }
             }
         }
@@ -103,8 +137,19 @@ fn scan_dir(path: &Path, is_root: bool) -> Result<Node> {
 
     let id = make_id(path);
     // Only include non-conforming directory nodes at the root level
-    let node_type_final = if !is_root && matches!(node_type, NodeType::Other) { NodeType::Other } else { node_type };
-    Ok(Node { id, code, title, path: path.to_string_lossy().to_string(), node_type: node_type_final, location: None, url: None, children })
+    let node_type_final = if !is_root && matches!(node_type, NodeType::Other) {
+        NodeType::Other
+    } else {
+        node_type
+    };
+    Ok(Node {
+        id,
+        code,
+        title,
+        path: path.to_string_lossy().to_string(),
+        node_type: node_type_final,
+        location: None,
+        url: None,
+        children,
+    })
 }
-
-

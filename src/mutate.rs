@@ -114,6 +114,8 @@ pub fn move_node(roots: &[PathBuf], id: &str, parent_id: &str) -> Result<()> {
         let parent_code = parent_path.file_name().and_then(|n| n.to_str()).and_then(|n| parse_category(n).map(|x| x.0)).unwrap();
         let next = crate::model::suggest_next_code(&tree, &parent_code)?; // NN.MM
         let (_old_code, title, ext) = item_parsed.unwrap();
+        // parse_item returns the display title ('_' -> ' '); re-sanitize for the filesystem name
+        let title = sanitize_title(&title);
         let new_name = match ext.as_deref() { Some(e) if !e.is_empty() => format!("{}_{}.{}", next, title, e), _ => format!("{}_{}", next, title) };
         let new_path = parent_path.join(new_name);
         fs::rename(&p, &new_path)?;

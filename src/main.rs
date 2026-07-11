@@ -2,15 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand, Args, ValueEnum};
 use std::path::PathBuf;
 
-mod model;
-mod fs_walk;
-mod tsv;
-mod preview;
-mod state;
-mod resolve;
-mod mutate;
-mod io;
-mod ignore;
+use jd_helper::{fs_walk, io, model, mutate, preview, resolve, state, tsv};
 
 #[derive(Parser, Debug)]
 #[command(name = "jd-helper", version, about = "Filesystem-first JD helper")] 

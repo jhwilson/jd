@@ -164,4 +164,43 @@ fn mutate_dir_file_link_rename_move_delete() {
     }
 }
 
+#[test]
+fn move_under_category_keeps_underscores_in_title() {
+    let td = tempdir().unwrap();
+    let home = td.path().join("home"); fs::create_dir_all(&home).unwrap();
+    let root = td.path().join("R50_Research"); fs::create_dir(&root).unwrap();
+    fs::create_dir(root.join("30-39_Research")).unwrap();
+    fs::create_dir(root.join("30-39_Research/30_Topic")).unwrap();
+    fs::create_dir(root.join("30-39_Research/31_Other")).unwrap();
+    fs::write(root.join("30-39_Research/30_Topic/30.01_Two_Word_Note.txt"), b"x").unwrap();
+
+    fn find_id(node: &serde_json::Value, path_end: &str) -> Option<String> {
+        if node.get("path").and_then(|s| s.as_str()).map(|s| s.ends_with(path_end)).unwrap_or(false) {
+            return node.get("id").and_then(|s| s.as_str()).map(|s| s.to_string());
+        }
+        if let Some(arr) = node.get("children").and_then(|c| c.as_array()) {
+            for ch in arr { if let Some(x) = find_id(ch, path_end) { return Some(x); } }
+        }
+        None
+    }
+    let scan = |home: &PathBuf| -> serde_json::Value {
+        let mut cmd = cargo_bin(); set_home(&mut cmd, home);
+        cmd.arg("scan").arg(root.to_str().unwrap());
+        let out = cmd.assert().success().get_output().stdout.clone();
+        serde_json::from_slice(&out).unwrap()
+    };
+
+    let v = scan(&home);
+    let roots = v.get("roots").and_then(|r| r.as_array()).unwrap();
+    let file_id = roots.iter().find_map(|r| find_id(r, "30.01_Two_Word_Note.txt")).unwrap();
+    let cat_id = roots.iter().find_map(|r| find_id(r, "30-39_Research/31_Other")).unwrap();
+
+    let mut cmd = cargo_bin(); set_home(&mut cmd, &home);
+    cmd.arg("move").arg("--id").arg(&file_id).arg("--parent").arg(&cat_id).arg(root.to_str().unwrap());
+    cmd.assert().success();
+
+    // Item gets the next free code under 31 and the title keeps underscores (no spaces)
+    assert!(root.join("30-39_Research/31_Other/31.01_Two_Word_Note.txt").exists());
+}
+
 

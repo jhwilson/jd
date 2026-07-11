@@ -10,14 +10,14 @@ fn file_name_lower(path: &Path) -> String {
 pub fn is_ignored_dir_name(name: &str) -> bool {
     let n = name.to_lowercase();
     matches!(n.as_str(),
-        ".git" | ".obsidian" | ".auctex-auto" | "tmp" | "temp" | "cache" | ".cache" | ".tmp" | "logs"
+        ".git" | ".obsidian" | ".auctex-auto" | "tmp" | "temp" | "cache" | ".cache" | ".tmp" | "logs" | ".jd_trash"
     )
 }
 
 pub fn is_ignored_file_name(name: &str) -> bool {
     let n = name.to_lowercase();
-    // macOS Finder metadata
-    if n == ".ds_store" {
+    // macOS Finder metadata; jd's own per-directory metadata file
+    if n == ".ds_store" || n == ".jdmeta" {
         return true;
     }
     // Logs and backups

@@ -107,6 +107,44 @@ pub fn suggest_next_code(tree: &Tree, parent_code: &str) -> Result<String> {
     bail!("No free item code under {}", parent_code)
 }
 
-// end
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(id: &str, code: Option<&str>, node_type: NodeType, children: Vec<Node>) -> Node {
+        Node {
+            id: id.into(),
+            code: code.map(|c| c.to_string()),
+            title: id.into(),
+            path: String::new(),
+            node_type,
+            location: None,
+            url: None,
+            children,
+        }
+    }
+
+    #[test]
+    fn parse_variants() {
+        assert_eq!(parse_range("30-39_Research").unwrap().0, "30-39");
+        assert_eq!(parse_category("30_Topic").unwrap().0, "30");
+        assert_eq!(parse_item("30.01_Something.txt").unwrap().0, "30.01");
+        assert_eq!(parse_item("30.011_Longer").unwrap().0, "30.011");
+        assert_eq!(parse_item("30.01.02_Deep").unwrap().0, "30.01.02");
+    }
+
+    #[test]
+    fn suggest_basic() {
+        let t = Tree {
+            roots: vec![node(
+                "r",
+                Some("30"),
+                NodeType::Category,
+                vec![node("a", Some("30.01"), NodeType::ItemDir, vec![])],
+            )],
+        };
+        assert_eq!(suggest_next_code(&t, "30").unwrap(), "30.02");
+    }
+}
 
 

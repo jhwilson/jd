@@ -1,0 +1,12 @@
+D	99-99_Test_Range
+D	99-99_Test_Range/99_TestCat
+D	99-99_Test_Range/99_TestCat/99.01_TestItem
+F	99-99_Test_Range/99_TestCat/99.01_TestItem/99.01.01_Nested_Note.txt
+F	99-99_Test_Range/99_TestCat/99.02_Example.url
+F	99-99_Test_Range/99_TestCat/99.03_Website.webloc
+F	99-99_Test_Range/99_TestCat/99.04_Location_Pointer.txt
+D	90-98_Second_Range
+D	90-98_Second_Range/90_Another_Cat
+D	90-98_Second_Range/90_Another_Cat/90.01_Alpha_Item
+F	90-98_Second_Range/90_Another_Cat/90.02_Two_Word_Notes.md
+D	90-98_Second_Range/91_Sparse_Cat

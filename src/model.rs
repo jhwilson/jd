@@ -162,6 +162,43 @@ pub fn suggest_next_code(tree: &Tree, parent_code: &str) -> Result<String> {
     bail!("No free item code under {}", parent_code)
 }
 
+/// How many places outside this folder the number lives in: .jdmeta
+/// locations and links, plus child link items and child LOCATION= file
+/// items. Used to pick which duplicate is cheaper to renumber.
+pub fn drawer_count(n: &Node) -> usize {
+    n.locations.len()
+        + n.links.len()
+        + n.children
+            .iter()
+            .filter(|c| {
+                matches!(c.node_type, NodeType::Link)
+                    || (matches!(c.node_type, NodeType::File) && c.location.is_some())
+            })
+            .count()
+}
+
+/// Codes used by more than one node within the same root (siblings or not —
+/// a stray category 21 inside 30-39 still collides with the real 21).
+/// Returns (code, ids) groups in code order.
+pub fn duplicate_groups(tree: &Tree) -> Vec<(String, Vec<String>)> {
+    use std::collections::BTreeMap;
+    let mut out = Vec::new();
+    for root in &tree.roots {
+        let mut by_code: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        fn walk(n: &Node, m: &mut std::collections::BTreeMap<String, Vec<String>>) {
+            if let Some(c) = &n.code {
+                m.entry(c.clone()).or_default().push(n.id.clone());
+            }
+            for ch in &n.children {
+                walk(ch, m);
+            }
+        }
+        walk(root, &mut by_code);
+        out.extend(by_code.into_iter().filter(|(_, ids)| ids.len() > 1));
+    }
+    out
+}
+
 pub fn find_node<'a>(tree: &'a Tree, id: &str) -> Option<&'a Node> {
     fn walk<'a>(n: &'a Node, id: &str) -> Option<&'a Node> {
         if n.id == id {

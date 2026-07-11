@@ -32,6 +32,24 @@ enum Commands {
     Ui(UiCmd),
     /// Manage a directory node's .jdmeta locations/links
     Meta(MetaCmd),
+    /// List duplicate JD codes (per root)
+    Duplicates(DuplicatesCmd),
+    /// Give a node the next free code under its parent (children recoded)
+    Renumber(RenumberCmd),
+}
+
+#[derive(Args, Debug)]
+struct DuplicatesCmd {
+    #[arg(required = true)]
+    roots: Vec<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+struct RenumberCmd {
+    #[arg(long)]
+    id: String,
+    #[arg(required = true)]
+    roots: Vec<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -400,6 +418,27 @@ fn main() -> Result<()> {
             if let Some(action) = ui::run(&cmd.roots, &state)? {
                 println!("{}", action);
             }
+        }
+        Commands::Duplicates(cmd) => {
+            let tree = fs_walk::scan_roots(&cmd.roots)?;
+            for (code, ids) in model::duplicate_groups(&tree) {
+                for id in ids {
+                    let n = model::find_node(&tree, &id).unwrap();
+                    println!(
+                        "{}\t{}\t{} drawers\t{}",
+                        code,
+                        id,
+                        model::drawer_count(n),
+                        n.path
+                    );
+                }
+            }
+        }
+        Commands::Renumber(cmd) => {
+            let tree = fs_walk::scan_roots(&cmd.roots)?;
+            let plan = jd_helper::plan::plan_renumber(&tree, &cmd.id)?;
+            let dest = mutate::execute_renumber(&cmd.roots, &plan)?;
+            println!("{}\t{}\t{}", plan.old_code, plan.new_code, dest.display());
         }
         Commands::Meta(cmd) => {
             fn node_dir(roots: &[PathBuf], id: &str) -> Result<PathBuf> {

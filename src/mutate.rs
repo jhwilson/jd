@@ -106,6 +106,56 @@ pub fn undo_delete(roots: &[PathBuf], trash: &Path, original: &Path) -> Result<(
     fs::rename(trash, original)?;
     index(roots)
 }
+
+/// Execute a renumber: rename the entry, cascade-rename descendants whose
+/// filenames embed the old code, and rewrite the old code inside the entry's
+/// own .jdmeta. Returns the new path.
+pub fn execute_renumber(roots: &[PathBuf], p: &crate::plan::RenumberPlan) -> Result<PathBuf> {
+    fs::rename(&p.src_path, &p.dest_path)?;
+    if p.dest_path.is_dir() {
+        recode_children(&p.dest_path, &p.old_code, &p.new_code)?;
+        rewrite_meta_code(&p.dest_path, &p.old_code, &p.new_code)?;
+    }
+    index(roots)?;
+    Ok(p.dest_path.clone())
+}
+
+/// Rename every descendant whose filename starts with "{old}." to start with
+/// "{new}." instead (item codes embed their ancestors' codes).
+fn recode_children(dir: &Path, old: &str, new: &str) -> Result<()> {
+    let prefix = format!("{}.", old);
+    for entry in fs::read_dir(dir)?.filter_map(|e| e.ok()) {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path = entry.path();
+        let path = if let Some(rest) = name.strip_prefix(&prefix) {
+            let renamed = dir.join(format!("{}.{}", new, rest));
+            fs::rename(&path, &renamed)?;
+            renamed
+        } else {
+            path
+        };
+        if path.is_dir() {
+            recode_children(&path, old, new)?;
+        }
+    }
+    Ok(())
+}
+
+/// The entry's own .jdmeta describes this number — occurrences of the old
+/// code in it are stale after a renumber. Rewrites them in place (code
+/// boundaries respected so 21.04 never touches 21.041).
+fn rewrite_meta_code(dir: &Path, old: &str, new: &str) -> Result<()> {
+    let path = dir.join(crate::meta::META_FILE);
+    let Ok(content) = fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    let re = regex::Regex::new(&format!(r"(^|[^\d.]){}([^\d.]|$)", regex::escape(old))).unwrap();
+    let rewritten = re.replace_all(&content, format!("${{1}}{}${{2}}", new));
+    if rewritten != content {
+        fs::write(&path, rewritten.as_bytes())?;
+    }
+    Ok(())
+}
 pub fn new_interactive_any(
     roots: &[PathBuf],
     parent_id: &str,

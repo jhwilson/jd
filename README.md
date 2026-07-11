@@ -58,6 +58,7 @@ Keybindings
 | Ctrl-X | delete (confirmed; soft-deleted to a sibling `.jd_trash/`) |
 | Ctrl-Z | undo the last delete |
 | Ctrl-L | edit locations & links (`.jdmeta`, see below) |
+| Ctrl-F | resolve duplicate codes (see below) |
 | Ctrl-U | clear the filter |
 | Esc | clear filter, then quit · Ctrl-Q/Ctrl-C quit |
 | Ctrl-K | help overlay (F1 also works) |
@@ -100,6 +101,22 @@ as a single index of where everything is. The file is hand-editable;
 unknown keys and comments survive edits. Scripts can use
 `jd-helper meta list|add|remove --id <id> [--value ...] ROOTS...`.
 
+Resolving duplicate codes
+-------------------------
+
+Duplicate codes show as a yellow warning on the status line; Ctrl-F opens a
+small wizard over them. Each group lists the colliding entries with their
+"drawer" count (locations, links, and link/location items inside) and
+creation date; the recommended victim — fewest drawers, tie broken by newest
+— is preselected, but you pick. Confirming renumbers it to the next free
+code under its parent (no new collisions), recodes children whose names
+embed the old code (`21.04 → 21.07` also renames `21.04.01_…`), and rewrites
+the old code inside the entry's own `.jdmeta`. If the entry lives in other
+places (reMarkable, Notion, …) you land in the locations editor with a
+reminder to update them now. Ranges are refused — renumbering a decade is a
+manual decision. Scriptable via `jd-helper duplicates ROOTS...` and
+`jd-helper renumber --id <id> ROOTS...`.
+
 Search behavior
 ---------------
 
@@ -126,6 +143,8 @@ The TUI is one subcommand among scriptable primitives:
 - `move --id ID --parent PARENT_ID ROOTS...` → within one root; items under a category are recoded
 - `delete --id ID ROOTS...` → soft delete to `.jd_trash/`
 - `meta list|add|remove --id ID [--value STR] ROOTS...` → `.jdmeta` entries
+- `duplicates ROOTS...` → list duplicate-code groups (code, id, drawers, path)
+- `renumber --id ID ROOTS...` → next free code under the parent, children recoded
 - `suggest --parent CODE ROOTS...` → next free code under `NN`
 - `toggle | expand-all | reset-state` → fold-state manipulation
 - `write-index ROOTS... [--out PATH]` → write `ROOT/.jd_index.json`

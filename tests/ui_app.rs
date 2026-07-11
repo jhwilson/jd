@@ -244,6 +244,71 @@ fn meta_add_and_remove_via_editor() {
     assert!(!fs::read_to_string(&meta_path).unwrap().contains("LOCATION"));
 }
 
+/// Create a duplicate of 99.01 and give the original a .jdmeta drawer.
+fn make_duplicate(h: &mut Harness) {
+    let cat = h.root.join("99-99_Test_Range/99_TestCat");
+    fs::create_dir(cat.join("99.01_Second")).unwrap();
+    fs::write(
+        cat.join("99.01_TestItem/.jdmeta"),
+        "LOCATION=remarkable: 99.01 notebook\n",
+    )
+    .unwrap();
+    // reload the app against the changed tree
+    h.app = App::new(vec![h.root.clone()], h.state.clone()).unwrap();
+}
+
+#[test]
+fn duplicate_wizard_renumbers_recommended_entry() {
+    let mut h = harness();
+    make_duplicate(&mut h);
+    assert!(!h.app.tree.warnings.is_empty());
+    ctrl(&mut h.app, 'f');
+    let Mode::Duplicates { groups, cursor, .. } = &h.app.mode else {
+        panic!("expected duplicates mode");
+    };
+    // recommended = fewest drawers = the twin without .jdmeta
+    let rec = &groups[0].entries[groups[0].recommended];
+    assert!(h.app.rows[rec.row_idx].path.ends_with("99.01_Second"));
+    assert_eq!(*cursor, groups[0].recommended);
+
+    h.app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(matches!(h.app.mode, Mode::Confirm { .. }));
+    h.app.handle_key(KeyCode::Char('y'), KeyModifiers::NONE);
+    // next free under 99: 99.01..99.04 used -> 99.05; no drawers -> Browse
+    let cat = h.root.join("99-99_Test_Range/99_TestCat");
+    assert!(cat.join("99.05_Second").is_dir());
+    assert!(!cat.join("99.01_Second").exists());
+    assert!(matches!(h.app.mode, Mode::Browse));
+    assert!(h.app.status.as_deref().unwrap_or("").contains("99.01 → 99.05"));
+    assert!(h.app.tree.warnings.is_empty());
+}
+
+#[test]
+fn duplicate_wizard_cascades_and_reminds_about_drawers() {
+    let mut h = harness();
+    make_duplicate(&mut h);
+    ctrl(&mut h.app, 'f');
+    // pick the entry WITH drawers (the original, below the recommended twin)
+    h.app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+    h.app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    h.app.handle_key(KeyCode::Char('y'), KeyModifiers::NONE);
+
+    let cat = h.root.join("99-99_Test_Range/99_TestCat");
+    // renamed with its embedded child recoded
+    assert!(cat.join("99.05_TestItem").is_dir());
+    assert!(cat
+        .join("99.05_TestItem/99.05.01_Nested_Note.txt")
+        .is_file());
+    // its own .jdmeta had the old code inside -> rewritten
+    assert_eq!(
+        fs::read_to_string(cat.join("99.05_TestItem/.jdmeta")).unwrap(),
+        "LOCATION=remarkable: 99.05 notebook\n"
+    );
+    // drawers > 0 -> lands in the meta editor with the update reminder
+    assert!(matches!(h.app.mode, Mode::MetaEdit { .. }));
+    assert!(h.app.status.as_deref().unwrap_or("").contains("update"));
+}
+
 #[test]
 fn render_smoke() {
     let mut h = harness();

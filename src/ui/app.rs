@@ -8,7 +8,7 @@ use crate::{
     fs_walk, meta,
     model::{self, NodeType},
     mutate,
-    plan::{self, CreatePlan, MovePlan, PlanKind},
+    plan::{self, CreatePlan, MovePlan, PlanKind, RenumberPlan},
     state,
     tsv::ExpandedState,
 };
@@ -56,6 +56,26 @@ pub enum PendingOp {
         dir: PathBuf,
         entry: meta::Entry,
     },
+    Renumber {
+        plan: RenumberPlan,
+        drawers: usize,
+    },
+}
+
+/// One colliding entry in the duplicate-resolution wizard.
+#[derive(Clone)]
+pub struct DupEntry {
+    pub row_idx: usize,
+    pub drawers: usize,
+    pub label: String,
+}
+
+#[derive(Clone)]
+pub struct DupGroup {
+    pub code: String,
+    pub entries: Vec<DupEntry>,
+    /// Cheapest to renumber: fewest drawers, tie broken by newest creation.
+    pub recommended: usize,
 }
 
 pub enum Mode {
@@ -80,6 +100,12 @@ pub enum Mode {
     /// Edit the selected node's locations/links (.jdmeta).
     MetaEdit {
         id: String,
+        cursor: usize,
+    },
+    /// Resolve duplicate codes: pick which entry of each group to renumber.
+    Duplicates {
+        groups: Vec<DupGroup>,
+        gi: usize,
         cursor: usize,
     },
     Help,
@@ -207,6 +233,125 @@ impl App {
             .collect()
     }
 
+    /// Build the duplicate-resolution groups from the current tree.
+    pub fn duplicate_groups(&self) -> Vec<DupGroup> {
+        use std::time::SystemTime;
+        let root_prefixes: Vec<String> = self
+            .rows
+            .iter()
+            .filter(|r| r.depth == 0)
+            .map(|r| format!("{}/", r.path))
+            .collect();
+        model::duplicate_groups(&self.tree)
+            .into_iter()
+            .filter_map(|(code, ids)| {
+                let entries: Vec<(DupEntry, SystemTime)> = ids
+                    .iter()
+                    .filter_map(|id| {
+                        let row_idx = self.rows.iter().position(|r| &r.id == id)?;
+                        let r = &self.rows[row_idx];
+                        let n = model::find_node(&self.tree, id)?;
+                        let drawers = model::drawer_count(n);
+                        let created = std::fs::metadata(&r.path)
+                            .and_then(|m| m.created())
+                            .unwrap_or(SystemTime::UNIX_EPOCH);
+                        let rel = root_prefixes
+                            .iter()
+                            .find_map(|p| r.path.strip_prefix(p.as_str()))
+                            .unwrap_or(&r.path);
+                        let label = format!("{} · {} drawers · {}", r.display, drawers, rel);
+                        Some((
+                            DupEntry {
+                                row_idx,
+                                drawers,
+                                label,
+                            },
+                            created,
+                        ))
+                    })
+                    .collect();
+                if entries.len() < 2 {
+                    return None;
+                }
+                // fewest drawers wins; among ties, the newest entry
+                let recommended = entries
+                    .iter()
+                    .enumerate()
+                    .min_by(|(_, (a, at)), (_, (b, bt))| {
+                        a.drawers.cmp(&b.drawers).then(bt.cmp(at))
+                    })
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                Some(DupGroup {
+                    code,
+                    entries: entries.into_iter().map(|(e, _)| e).collect(),
+                    recommended,
+                })
+            })
+            .collect()
+    }
+
+    /// Enter the wizard (or report that there is nothing to fix).
+    fn enter_duplicates(&mut self) {
+        let groups = self.duplicate_groups();
+        match groups.first() {
+            Some(g) => {
+                let cursor = g.recommended;
+                self.mode = Mode::Duplicates {
+                    groups,
+                    gi: 0,
+                    cursor,
+                };
+            }
+            None => self.status = Some("no duplicate codes".into()),
+        }
+    }
+
+    fn on_duplicates(&mut self, groups: Vec<DupGroup>, gi: usize, mut cursor: usize, k: KeyEvent) {
+        let group = &groups[gi];
+        match k.code {
+            KeyCode::Esc => {
+                self.mode = Mode::Browse;
+                return;
+            }
+            KeyCode::Char('s') => {
+                // skip this group
+                if gi + 1 < groups.len() {
+                    let cursor = groups[gi + 1].recommended;
+                    self.mode = Mode::Duplicates {
+                        groups,
+                        gi: gi + 1,
+                        cursor,
+                    };
+                } else {
+                    self.mode = Mode::Browse;
+                }
+                return;
+            }
+            KeyCode::Enter => {
+                if let Some(e) = group.entries.get(cursor) {
+                    let id = self.rows[e.row_idx].id.clone();
+                    match plan::plan_renumber(&self.tree, &id) {
+                        Ok(plan) => {
+                            self.mode = Mode::Confirm {
+                                pending: PendingOp::Renumber {
+                                    plan,
+                                    drawers: e.drawers,
+                                },
+                            };
+                        }
+                        Err(err) => self.message(err.to_string()),
+                    }
+                    return;
+                }
+            }
+            KeyCode::Up => cursor = cursor.saturating_sub(1),
+            KeyCode::Down => cursor = (cursor + 1).min(group.entries.len().saturating_sub(1)),
+            _ => {}
+        }
+        self.mode = Mode::Duplicates { groups, gi, cursor };
+    }
+
     pub fn handle_key(&mut self, code: KeyCode, mods: KeyModifiers) -> Option<Outcome> {
         self.update(KeyEvent::new(code, mods))
     }
@@ -236,6 +381,10 @@ impl App {
             }
             Mode::MetaEdit { id, cursor } => {
                 self.on_meta_edit(id, cursor, k);
+                None
+            }
+            Mode::Duplicates { groups, gi, cursor } => {
+                self.on_duplicates(groups, gi, cursor, k);
                 None
             }
             // Message and Help are dismissed by any key.
@@ -370,6 +519,7 @@ impl App {
                         }
                     }
                 }
+                KeyCode::Char('f') => self.enter_duplicates(),
                 KeyCode::Char('k') => self.mode = Mode::Help,
                 KeyCode::Char('l') => {
                     if let Some(r) = self.selected() {
@@ -575,6 +725,60 @@ impl App {
     }
 
     fn on_confirm(&mut self, pending: PendingOp, k: KeyEvent) {
+        // Renumbers flow back into the wizard (or the meta editor when the
+        // renumbered entry has external locations to update).
+        if let PendingOp::Renumber { plan, drawers } = &pending {
+            match k.code {
+                KeyCode::Esc | KeyCode::Char('n') => self.enter_duplicates(),
+                KeyCode::Enter | KeyCode::Char('y') => {
+                    match mutate::execute_renumber(&self.roots, plan) {
+                        Ok(new_path) => {
+                            let drawers = *drawers;
+                            let (old_code, new_code) =
+                                (plan.old_code.clone(), plan.new_code.clone());
+                            self.query.clear();
+                            let key = new_path.to_string_lossy().to_string();
+                            let _ = self.rescan(Some(&key));
+                            let remaining = self.duplicate_groups().len();
+                            let tail = match remaining {
+                                0 => "no duplicates remain".to_string(),
+                                n => format!("{} duplicate group(s) left — ^F", n),
+                            };
+                            if drawers > 0 {
+                                // The number changed but reMarkable/Notion/…
+                                // still carry the old one: put the entries in
+                                // front of the user right now.
+                                if let Some(id) = self
+                                    .rows
+                                    .iter()
+                                    .find(|r| r.path == key)
+                                    .map(|r| r.id.clone())
+                                {
+                                    self.status = Some(format!(
+                                        "renumbered {} → {} — update these places to the new number · {}",
+                                        old_code, new_code, tail
+                                    ));
+                                    self.mode = Mode::MetaEdit { id, cursor: 0 };
+                                    return;
+                                }
+                            }
+                            self.status = Some(format!(
+                                "renumbered {} → {} · {}",
+                                old_code, new_code, tail
+                            ));
+                            if remaining > 0 {
+                                self.enter_duplicates();
+                            } else {
+                                self.mode = Mode::Browse;
+                            }
+                        }
+                        Err(e) => self.message(e.to_string()),
+                    }
+                }
+                _ => self.mode = Mode::Confirm { pending },
+            }
+            return;
+        }
         // Meta removals return to the meta editor, not Browse.
         if let PendingOp::MetaRemove { id, dir, entry } = &pending {
             match k.code {
@@ -631,7 +835,9 @@ impl App {
                             (None, format!("trashed {} · ctrl-z to undo", display))
                         })
                     }
-                    PendingOp::MetaRemove { .. } => unreachable!("handled above"),
+                    PendingOp::MetaRemove { .. } | PendingOp::Renumber { .. } => {
+                        unreachable!("handled above")
+                    }
                 };
                 match result {
                     Ok((select, status)) => {

@@ -2,7 +2,7 @@ use crate::model::{self, Node, NodeType, Tree};
 use anyhow::{bail, Result};
 use once_cell::sync::Lazy;
 use regex::Regex;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PlanKind {
@@ -249,6 +249,88 @@ pub fn plan_move(tree: &Tree, id: &str, new_parent_id: &str) -> Result<MovePlan>
         dest_path: dest,
     })
 }
+#[derive(Clone, Debug)]
+pub struct RenumberPlan {
+    pub id: String,
+    pub old_code: String,
+    pub new_code: String,
+    pub src_path: PathBuf,
+    pub new_name: String,
+    pub dest_path: PathBuf,
+    /// Descendants whose filenames embed the old code and get renamed too.
+    pub child_renames: usize,
+}
+
+/// Plan giving a node the next free code under its parent (duplicate
+/// resolution). Children whose names start with the old code are renamed in
+/// cascade. Ranges are refused — renumbering a decade invalidates its
+/// category codes and needs human judgment.
+pub fn plan_renumber(tree: &Tree, id: &str) -> Result<RenumberPlan> {
+    let n = model::find_node(tree, id).ok_or_else(|| anyhow::anyhow!("not found"))?;
+    let old_code = n
+        .code
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("node has no JD code"))?;
+    if matches!(n.node_type, NodeType::Range) {
+        bail!("renumbering a range moves whole decades — do that manually");
+    }
+    let parent_id = model::find_parent_id(tree, id)
+        .ok_or_else(|| anyhow::anyhow!("cannot renumber a root"))?;
+    let parent =
+        model::find_node(tree, &parent_id).ok_or_else(|| anyhow::anyhow!("parent not found"))?;
+    let new_code = model::suggest_child_code(tree, parent)?;
+    if new_code.is_empty() {
+        bail!(
+            "no code scheme under {} — move the entry into a range/category first",
+            parent.title
+        );
+    }
+    let src_path = PathBuf::from(&n.path);
+    let name = src_path
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    let new_name = format!("{}{}", new_code, &name[old_code.len()..]);
+    let dest_path = src_path.parent().unwrap().join(&new_name);
+    if dest_path.exists() {
+        bail!("destination already exists: {}", dest_path.display());
+    }
+    fn count_embedded(n: &Node, prefix: &str) -> usize {
+        n.children
+            .iter()
+            .map(|c| {
+                let hit = Path::new(&c.path)
+                    .file_name()
+                    .map(|f| f.to_string_lossy().starts_with(prefix))
+                    .unwrap_or(false) as usize;
+                hit + count_embedded(c, prefix)
+            })
+            .sum()
+    }
+    let child_renames = count_embedded(n, &format!("{}.", old_code));
+    Ok(RenumberPlan {
+        id: id.into(),
+        old_code,
+        new_code,
+        src_path,
+        new_name,
+        dest_path,
+        child_renames,
+    })
+}
+
+pub fn renumber_summary(p: &RenumberPlan) -> String {
+    let cascade = match p.child_renames {
+        0 => String::new(),
+        n => format!(" (+{} children recoded)", n),
+    };
+    format!(
+        "will renumber {} → {}{}",
+        p.old_code, p.new_name, cascade
+    )
+}
+
 pub fn create_summary(p: &CreatePlan) -> String {
     format!(
         "will create {} {} under {}{}",
@@ -410,6 +492,42 @@ mod tests {
         assert_eq!(p.final_name, "31.07_Notes.md");
         assert!(p.url.is_none());
         assert!(p.warnings.iter().any(|w| w.contains("URL ignored")));
+    }
+
+    #[test]
+    fn duplicate_groups_and_renumber_planning() {
+        let (td, _) = fixture();
+        let r = td.path().join("R");
+        // a twin of 31.01 plus a segmented child under 31.04
+        fs::create_dir(r.join("30-39_Research/31_Papers/31.01_Twin")).unwrap();
+        fs::write(
+            r.join("30-39_Research/31_Papers/31.04_Container/31.04.01_Sub.txt"),
+            b"x",
+        )
+        .unwrap();
+        let tree = fs_walk::scan_roots(&[r]).unwrap();
+
+        let groups = model::duplicate_groups(&tree);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].0, "31.01");
+        assert_eq!(groups[0].1.len(), 2);
+
+        // twin gets the next free code, no children to recode
+        let twin = node_by_suffix(&tree, "31.01_Twin").id.clone();
+        let p = plan_renumber(&tree, &twin).unwrap();
+        assert_eq!(p.new_code, "31.02");
+        assert_eq!(p.new_name, "31.02_Twin");
+        assert_eq!(p.child_renames, 0);
+
+        // container cascade counts the embedded child code
+        let container = node_by_suffix(&tree, "31.04_Container").id.clone();
+        let p = plan_renumber(&tree, &container).unwrap();
+        assert_eq!(p.new_code, "31.02");
+        assert_eq!(p.child_renames, 1);
+
+        // ranges are refused
+        let range = node_by_suffix(&tree, "30-39_Research").id.clone();
+        assert!(plan_renumber(&tree, &range).is_err());
     }
 
     #[test]

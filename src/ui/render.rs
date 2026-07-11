@@ -13,25 +13,55 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let [tree_pane, preview_pane] =
         Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)]).areas(main);
 
-    // Tree pane: browse rows, or move-destination candidates while picking.
-    let (indices, list_cursor, title): (Vec<usize>, usize, &str) = match &app.mode {
+    // Tree pane: browse rows, move-destination candidates, or the entries of
+    // the current duplicate group.
+    let (indices, list_cursor, title): (Vec<usize>, usize, String) = match &app.mode {
         Mode::MovePicker {
             candidates, cursor, ..
-        } => (candidates.clone(), *cursor, "Move to"),
-        _ => (app.visible.clone(), app.cursor, "Johnny.Decimal"),
+        } => (candidates.clone(), *cursor, "Move to".into()),
+        Mode::Duplicates { groups, gi, cursor } => (
+            groups[*gi].entries.iter().map(|e| e.row_idx).collect(),
+            *cursor,
+            format!(
+                "Duplicate code {} — {}/{}",
+                groups[*gi].code,
+                gi + 1,
+                groups.len()
+            ),
+        ),
+        _ => (app.visible.clone(), app.cursor, "Johnny.Decimal".into()),
     };
     let query = match &app.mode {
         Mode::MovePicker { query, .. } => query.clone(),
+        Mode::Duplicates { .. } => String::new(),
         _ => app.query.clone(),
     };
-    let lines: Vec<Line> = indices
-        .iter()
-        .map(|i| row_line(app, *i, &query))
-        .collect();
+    let lines: Vec<Line> = match &app.mode {
+        Mode::Duplicates { groups, gi, .. } => groups[*gi]
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(i, e)| {
+                if i == groups[*gi].recommended {
+                    Line::from(vec![
+                        Span::raw(e.label.clone()),
+                        Span::styled("  ← recommended", Style::new().fg(Color::Green)),
+                    ])
+                } else {
+                    Line::from(e.label.clone())
+                }
+            })
+            .collect(),
+        _ => indices.iter().map(|i| row_line(app, *i, &query)).collect(),
+    };
     let list = List::new(lines)
         .block(Block::bordered().title(title))
         .highlight_style(Style::new().reversed());
-    let mut st = ListState::default().with_selected((!indices.is_empty()).then_some(list_cursor));
+    let n_lines = match &app.mode {
+        Mode::Duplicates { groups, gi, .. } => groups[*gi].entries.len(),
+        _ => indices.len(),
+    };
+    let mut st = ListState::default().with_selected((n_lines > 0).then_some(list_cursor));
     f.render_stateful_widget(list, tree_pane, &mut st);
 
     // Preview pane: the meta editor while active, else a preview (with the
@@ -175,7 +205,10 @@ fn bottom_lines(app: &App) -> (Line<'static>, Line<'static>) {
                     } else {
                         String::new()
                     };
-                    Line::styled(format!("⚠ {}{}", w, suffix), Style::new().fg(Color::Yellow))
+                    Line::styled(
+                        format!("⚠ {}{} · ^F to fix", w, suffix),
+                        Style::new().fg(Color::Yellow),
+                    )
                 }
                 (None, None) => hint(keymap::HINT),
             };
@@ -191,8 +224,16 @@ fn bottom_lines(app: &App) -> (Line<'static>, Line<'static>) {
             hint("type to filter · ↑/↓ select · enter choose · esc cancel"),
         ),
         Mode::MetaEdit { .. } => (
-            Line::from("Locations & links"),
+            match &app.status {
+                // e.g. the post-renumber reminder to update external places
+                Some(s) => Line::styled(s.clone(), Style::new().fg(Color::Yellow).bold()),
+                None => Line::from("Locations & links"),
+            },
             hint("a add · x remove · ↑/↓ select · esc done"),
+        ),
+        Mode::Duplicates { .. } => (
+            Line::from("Same code, several entries — pick the one to renumber"),
+            hint("↑/↓ select · enter renumber · s skip group · esc done"),
         ),
         Mode::Message { text, error } => (
             Line::styled(
@@ -248,6 +289,20 @@ fn confirm_lines(pending: &PendingOp) -> (Line<'static>, Line<'static>) {
         PendingOp::MetaRemove { entry, .. } => (
             Line::from(format!("remove {}?", entry.display())),
             Line::styled("y/enter confirm · n/esc cancel", Style::new().dim()),
+        ),
+        PendingOp::Renumber { plan: p, drawers } => (
+            Line::from(plan::renumber_summary(p)),
+            if *drawers > 0 {
+                Line::styled(
+                    format!(
+                        "⚠ lives in {} other place(s) — you'll be reminded to update them · y/n",
+                        drawers
+                    ),
+                    Style::new().fg(Color::Yellow),
+                )
+            } else {
+                Line::styled("y/enter confirm · n/esc cancel", Style::new().dim())
+            },
         ),
     }
 }

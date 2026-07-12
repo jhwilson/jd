@@ -4,51 +4,43 @@ use std::fs;
 use std::path::Path;
 
 pub fn preview_dir(path: &Path) -> Result<String> {
-    let mut dated: Vec<(u128, String)> = Vec::new();
-    let mut other: Vec<String> = Vec::new();
-    for entry in fs::read_dir(path)? {
-        if let Ok(e) = entry {
-            let name = e.file_name().to_string_lossy().to_string();
-            let full = path.join(e.file_name());
-            if is_ignored_entry(&full) {
-                continue;
-            }
-            // Only treat regular files with YYYYMMDDTTTT* prefix as dated
-            let file_type = e.file_type().ok();
-            if file_type.as_ref().map(|ft| ft.is_file()).unwrap_or(false) {
-                if let Some(ts) = parse_datetime_prefix(&name) {
-                    dated.push((ts, name));
-                    continue;
-                }
-            }
-            other.push(name);
-        }
-    }
-    // Newest first for dated, then others alpha; show up to 50 entries total
-    dated.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-    other.sort();
-    let mut out = String::new();
-    out.push_str(&format!("dir: {}\n\n", path.display()));
-    let mut shown = 0usize;
-    for (_, name) in &dated {
-        if shown >= 50 {
-            break;
-        }
-        out.push_str(name);
+    let listing = dir_listing(path, 50)?;
+    let mut out = format!("dir: {}\n\n", path.display());
+    if !listing.is_empty() {
+        out.push_str(&listing.join("\n"));
         out.push('\n');
-        shown += 1;
-    }
-    if shown < 50 {
-        for name in &other {
-            if shown >= 50 {
-                break;
-            }
-            out.push_str(name);
-            out.push('\n');
-            shown += 1;
-        }
     }
     Ok(out)
+}
+
+pub fn dir_listing(path: &Path, cap: usize) -> Result<Vec<String>> {
+    let mut dated: Vec<(u128, String)> = Vec::new();
+    let mut other: Vec<String> = Vec::new();
+    for e in fs::read_dir(path)?.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        let full = path.join(e.file_name());
+        if is_ignored_entry(&full) {
+            continue;
+        }
+        // Only treat regular files with YYYYMMDDTTTT* prefix as dated
+        let file_type = e.file_type().ok();
+        if file_type.as_ref().map(|ft| ft.is_file()).unwrap_or(false) {
+            if let Some(ts) = parse_datetime_prefix(&name) {
+                dated.push((ts, name));
+                continue;
+            }
+        }
+        other.push(name);
+    }
+    // Newest first for dated, then others alpha.
+    dated.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    other.sort();
+    Ok(dated
+        .into_iter()
+        .map(|(_, name)| name)
+        .chain(other)
+        .take(cap)
+        .collect())
 }
 
 fn parse_datetime_prefix(name: &str) -> Option<u128> {

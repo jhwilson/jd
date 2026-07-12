@@ -9,6 +9,16 @@ base64 "$DECODE_OPT" > "${DEST}/99-99_Test_Range/99_TestCat/99.02_Example.url" <
 W0ludGVybmV0U2hvcnRjdXRdClVSTD1odHRwczovL2V4YW1wbGUuY29tCg==
 __JD_BASE64__
 
+mkdir -p "${DEST}/99-99_Test_Range/99_TestCat/99.01_TestItem"
+cat > "${DEST}/99-99_Test_Range/99_TestCat/99.01_TestItem/.jdmeta.md" <<'__JD_NOTES__'
+# Test item
+
+Working notes for this folder:
+
+- Review the [reference](https://example.com)
+- Run `cargo test`
+__JD_NOTES__
+
 mkdir -p "${DEST}/99-99_Test_Range/99_TestCat"
 base64 "$DECODE_OPT" > "${DEST}/99-99_Test_Range/99_TestCat/99.03_Website.webloc" <<'__JD_BASE64__'
 PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBV
@@ -17,4 +27,3 @@ RFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPjxkaWN0Pjxr
 ZXk+VVJMPC9rZXk+PHN0cmluZz5odHRwczovL2V4YW1wbGUub3JnPC9zdHJpbmc+PC9kaWN0Pjwv
 cGxpc3Q+Cg==
 __JD_BASE64__
-

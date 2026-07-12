@@ -5,6 +5,7 @@ pub mod prompt;
 pub mod render;
 pub mod rows;
 pub mod search;
+pub mod theme;
 
 pub use actions::FinalAction;
 use anyhow::{bail, Result};
@@ -19,13 +20,53 @@ use ratatui::{
     Terminal,
 };
 use std::{
+    fs::File,
     io::{self, IsTerminal},
     path::{Path, PathBuf},
+    process::{Command, ExitStatus, Stdio},
 };
 
 fn restore_terminal() {
     let _ = disable_raw_mode();
     let _ = execute!(io::stderr(), LeaveAlternateScreen);
+}
+
+fn suspend_tui() -> Result<()> {
+    disable_raw_mode()?;
+    execute!(io::stderr(), LeaveAlternateScreen)?;
+    Ok(())
+}
+
+fn resume_tui(terminal: &mut Terminal<CrosstermBackend<io::Stderr>>) -> Result<()> {
+    enable_raw_mode()?;
+    execute!(io::stderr(), EnterAlternateScreen)?;
+    terminal.clear()?;
+    Ok(())
+}
+
+pub fn editor_command() -> Vec<String> {
+    ["JD_EDITOR", "VISUAL", "EDITOR"]
+        .into_iter()
+        .find_map(|name| std::env::var(name).ok().filter(|s| !s.trim().is_empty()))
+        .unwrap_or_else(|| "vim".into())
+        .split_whitespace()
+        .map(str::to_string)
+        .collect()
+}
+
+pub fn spawn_editor(path: &Path) -> io::Result<ExitStatus> {
+    let parts = editor_command();
+    let mut command = Command::new(&parts[0]);
+    command
+        .args(&parts[1..])
+        .arg(path)
+        .stdin(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    command.stdout(match File::options().write(true).open("/dev/tty") {
+        Ok(tty) => Stdio::from(tty),
+        Err(_) => Stdio::inherit(),
+    });
+    command.status()
 }
 
 struct Guard;
@@ -58,6 +99,12 @@ pub fn run(roots: &[PathBuf], state: &Path) -> Result<Option<FinalAction>> {
             match app.update(k) {
                 Some(Outcome::Quit) => return Ok(None),
                 Some(Outcome::Act(a)) => return Ok(Some(a)),
+                Some(Outcome::Suspend(req)) => {
+                    suspend_tui()?;
+                    let result = spawn_editor(&req.file);
+                    resume_tui(&mut terminal)?;
+                    app.after_editor(req, result);
+                }
                 None => {}
             }
         }

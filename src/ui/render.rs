@@ -2,16 +2,35 @@ use super::{
     app::{App, Mode, PendingOp},
     keymap,
     rows::Row,
+    theme,
 };
 use crate::model::NodeType;
 use crate::plan;
 use ratatui::{prelude::*, widgets::*};
 
 pub fn draw(f: &mut Frame, app: &mut App) {
-    let [main, bottom] =
-        Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).areas(f.area());
-    let [tree_pane, preview_pane] =
-        Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)]).areas(main);
+    let [header, _, main, _, bottom] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(1),
+        Constraint::Length(1),
+        Constraint::Length(2),
+    ])
+    .areas(f.area());
+    let panes = |area| {
+        Layout::horizontal([
+            Constraint::Length(2),
+            Constraint::Fill(3),
+            Constraint::Length(3),
+            Constraint::Fill(2),
+            Constraint::Length(2),
+        ])
+        .split(area)
+    };
+    let header_panes = panes(header);
+    let main_panes = panes(main);
+    let tree_pane = main_panes[1];
+    let preview_pane = main_panes[3];
 
     // Tree pane: browse rows, move-destination candidates, or the entries of
     // the current duplicate group.
@@ -45,7 +64,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 if i == groups[*gi].recommended {
                     Line::from(vec![
                         Span::raw(e.label.clone()),
-                        Span::styled("  ← recommended", Style::new().fg(Color::Green)),
+                        Span::styled("  ← recommended", theme::OK),
                     ])
                 } else {
                     Line::from(e.label.clone())
@@ -55,8 +74,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         _ => indices.iter().map(|i| row_line(app, *i, &query)).collect(),
     };
     let list = List::new(lines)
-        .block(Block::bordered().title(title))
-        .highlight_style(Style::new().reversed());
+        .highlight_symbol(theme::SELECT_MARK)
+        .highlight_style(theme::SELECTED);
     let n_lines = match &app.mode {
         Mode::Duplicates { groups, gi, .. } => groups[*gi].entries.len(),
         _ => indices.len(),
@@ -64,39 +83,62 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let mut st = ListState::default().with_selected((n_lines > 0).then_some(list_cursor));
     f.render_stateful_widget(list, tree_pane, &mut st);
 
+    let previewed = indices.get(list_cursor).and_then(|i| app.rows.get(*i));
+    f.render_widget(
+        Paragraph::new(Line::styled(title.to_uppercase(), theme::LABEL)),
+        header_panes[1],
+    );
+    let right_title = if matches!(app.mode, Mode::MetaEdit { .. }) {
+        "LOCATIONS & LINKS".to_string()
+    } else {
+        previewed
+            .map(|r| {
+                if r.has_notes {
+                    format!("{}  ≡ notes", r.display)
+                } else {
+                    r.display.clone()
+                }
+            })
+            .unwrap_or_default()
+    };
+    f.render_widget(
+        Paragraph::new(Line::styled(right_title, theme::LABEL)),
+        header_panes[3],
+    );
+
     // Preview pane: the meta editor while active, else a preview (with the
     // aggregated locations/links section) of the highlighted row.
     if let Mode::MetaEdit { id, cursor } = &app.mode {
-        let entries = app
-            .meta_entries(id)
-            .map(|(_, e)| e)
-            .unwrap_or_default();
+        let entries = app.meta_entries(id).map(|(_, e)| e).unwrap_or_default();
         let lines: Vec<Line> = if entries.is_empty() {
             vec![Line::styled(
                 "no locations or links yet — press a to add one",
-                Style::new().dim(),
+                theme::MUTED,
             )]
         } else {
             entries.iter().map(|e| Line::from(e.display())).collect()
         };
         let list = List::new(lines)
-            .block(Block::bordered().title("Locations & links"))
-            .highlight_style(Style::new().reversed());
-        let mut st =
-            ListState::default().with_selected((!entries.is_empty()).then_some(*cursor));
+            .highlight_symbol(theme::SELECT_MARK)
+            .highlight_style(theme::SELECTED);
+        let mut st = ListState::default().with_selected((!entries.is_empty()).then_some(*cursor));
         f.render_stateful_widget(list, preview_pane, &mut st);
     } else {
-        let previewed = indices.get(list_cursor).and_then(|i| app.rows.get(*i));
-        let preview = previewed.map(preview_text).unwrap_or_default();
+        let preview = previewed.map(preview_content).unwrap_or_default();
         f.render_widget(
-            Paragraph::new(preview)
-                .block(Block::bordered().title("Preview"))
-                .wrap(Wrap { trim: false }),
+            Paragraph::new(preview).wrap(Wrap { trim: false }),
             preview_pane,
         );
     }
 
     // Bottom bar: an input/summary line and a hint/status line.
+    let bottom_panes = panes(bottom);
+    let bottom = Rect::new(
+        bottom_panes[1].x,
+        bottom.y,
+        bottom_panes[3].right().saturating_sub(bottom_panes[1].x),
+        bottom.height,
+    );
     let [line1_area, line2_area] =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(bottom);
     let (line1, line2) = bottom_lines(app);
@@ -110,10 +152,28 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
 
     if matches!(app.mode, Mode::Help) {
-        let area = centered(f.area(), 70, 16);
+        // Sized to the help text: horizontal padding plus the title/rule rows.
+        let w = keymap::HELP
+            .lines()
+            .map(|l| l.chars().count())
+            .max()
+            .unwrap_or(0) as u16
+            + 6;
+        let h = keymap::HELP.lines().count() as u16 + 4;
+        let area = centered(f.area(), w, h);
         f.render_widget(Clear, area);
+        let rule = "─".repeat(area.width.saturating_sub(6) as usize);
+        let mut help_lines = vec![
+            Line::from(vec![
+                Span::styled("HELP", theme::LABEL),
+                Span::styled("  any key to close", theme::HINT),
+            ]),
+            Line::styled(rule, theme::RULE),
+        ];
+        help_lines.extend(keymap::HELP.lines().map(|line| Line::raw(line.to_string())));
         f.render_widget(
-            Paragraph::new(keymap::HELP).block(Block::bordered().title("Help — any key to close")),
+            Paragraph::new(Text::from(help_lines))
+                .block(Block::new().padding(Padding::new(3, 3, 1, 1))),
             area,
         );
     }
@@ -156,25 +216,73 @@ fn row_line(app: &mut App, row_idx: usize, query: &str) -> Line<'static> {
 
 fn styled(s: String, hit: bool) -> Span<'static> {
     if hit {
-        Span::styled(s, Style::new().bold().fg(Color::Cyan))
+        Span::styled(s, theme::MATCH)
     } else {
         Span::raw(s)
     }
 }
 
-fn preview_text(r: &Row) -> String {
+pub fn preview_content(r: &Row) -> Text<'static> {
     let p = std::path::Path::new(&r.path);
-    let body = match r.node_type {
-        NodeType::File => crate::preview::preview_file(p),
-        NodeType::Link => crate::preview::preview_link(p),
-        _ => crate::preview::preview_dir(p),
+    let mut lines = Vec::new();
+    for line in &r.meta_lines {
+        let (glyph, rest) =
+            line.split_at(line.char_indices().nth(1).map_or(line.len(), |(i, _)| i));
+        lines.push(Line::from(vec![
+            Span::styled(glyph.to_string(), theme::ACCENT),
+            Span::raw(rest.to_string()),
+        ]));
     }
-    .unwrap_or_else(|e| format!("preview unavailable: {}", e));
-    if r.meta_lines.is_empty() {
-        body
-    } else {
-        format!("{}\n\n{}", r.meta_lines.join("\n"), body)
+    if !r.meta_lines.is_empty() {
+        lines.push(Line::default());
     }
+    match r.node_type {
+        NodeType::File => {
+            let body = crate::preview::preview_file(p)
+                .unwrap_or_else(|e| format!("preview unavailable: {e}"));
+            let markdown = p
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "md" | "markdown"));
+            if markdown {
+                lines.extend(crate::md::render(&body).lines);
+            } else {
+                lines.extend(body.lines().map(|s| Line::raw(s.to_string())));
+            }
+        }
+        NodeType::Link => {
+            let body = crate::preview::preview_link(p)
+                .unwrap_or_else(|e| format!("preview unavailable: {e}"));
+            lines.extend(body.lines().map(|s| Line::raw(s.to_string())));
+        }
+        _ => {
+            if let Some(notes) = crate::meta::read_notes(p) {
+                lines.extend(crate::md::render(&notes).lines);
+                if !lines.is_empty() {
+                    lines.push(Line::default());
+                }
+            }
+            lines.push(Line::styled("FILES", theme::LABEL));
+            let cap = if r.has_notes { 10 } else { 50 };
+            match crate::preview::dir_listing(p, cap) {
+                Ok(names) => lines.extend(names.into_iter().map(|s| {
+                    Line::styled(
+                        s,
+                        if r.has_notes {
+                            theme::MUTED
+                        } else {
+                            Style::new()
+                        },
+                    )
+                })),
+                Err(e) => lines.push(Line::styled(
+                    format!("preview unavailable: {e}"),
+                    theme::ERR,
+                )),
+            }
+        }
+    }
+    Text::from(lines)
 }
 
 fn prompt_label(kind: &super::app::PromptKind) -> &'static str {
@@ -188,7 +296,7 @@ fn prompt_label(kind: &super::app::PromptKind) -> &'static str {
 }
 
 fn bottom_lines(app: &App) -> (Line<'static>, Line<'static>) {
-    let hint = |s: &'static str| Line::styled(s, Style::new().dim());
+    let hint = |s: &'static str| Line::styled(s, theme::HINT);
     match &app.mode {
         Mode::Browse => {
             let line1 = if app.query.is_empty() {
@@ -197,7 +305,7 @@ fn bottom_lines(app: &App) -> (Line<'static>, Line<'static>) {
                 Line::from(format!("filter: {}", app.query))
             };
             let line2 = match (&app.status, app.tree.warnings.first()) {
-                (Some(s), _) => Line::styled(s.clone(), Style::new().fg(Color::Green)),
+                (Some(s), _) => Line::styled(s.clone(), theme::OK),
                 (None, Some(w)) => {
                     let more = app.tree.warnings.len() - 1;
                     let suffix = if more > 0 {
@@ -207,7 +315,7 @@ fn bottom_lines(app: &App) -> (Line<'static>, Line<'static>) {
                     };
                     Line::styled(
                         format!("⚠ {}{} · ^F to fix", w, suffix),
-                        Style::new().fg(Color::Yellow),
+                        theme::WARN,
                     )
                 }
                 (None, None) => hint(keymap::HINT),
@@ -226,10 +334,10 @@ fn bottom_lines(app: &App) -> (Line<'static>, Line<'static>) {
         Mode::MetaEdit { .. } => (
             match &app.status {
                 // e.g. the post-renumber reminder to update external places
-                Some(s) => Line::styled(s.clone(), Style::new().fg(Color::Yellow).bold()),
+                Some(s) => Line::styled(s.clone(), theme::WARN.add_modifier(Modifier::BOLD)),
                 None => Line::from("Locations & links"),
             },
-            hint("a add · x remove · ↑/↓ select · esc done"),
+            hint("a add · x remove · e notes · ↑/↓ select · esc done"),
         ),
         Mode::Duplicates { .. } => (
             Line::from("Same code, several entries — renumber one, or merge a pointer/file into the folder"),
@@ -239,7 +347,7 @@ fn bottom_lines(app: &App) -> (Line<'static>, Line<'static>) {
             Line::styled(
                 text.clone(),
                 if *error {
-                    Style::new().fg(Color::Red).bold()
+                    theme::ERR
                 } else {
                     Style::new()
                 },
@@ -257,12 +365,12 @@ fn confirm_lines(pending: &PendingOp) -> (Line<'static>, Line<'static>) {
             let line2 = if p.warnings.is_empty() {
                 Line::styled(
                     "y/enter confirm · n/esc cancel · d/f/l override kind",
-                    Style::new().dim(),
+                    theme::HINT,
                 )
             } else {
                 Line::styled(
                     format!("⚠ {} · y/n · d/f/l override", p.warnings.join(" · ")),
-                    Style::new().fg(Color::Yellow),
+                    theme::WARN,
                 )
             };
             (line1, line2)
@@ -280,19 +388,19 @@ fn confirm_lines(pending: &PendingOp) -> (Line<'static>, Line<'static>) {
                     .unwrap_or_default(),
                 p.final_name
             )),
-            Line::styled("y/enter confirm · n/esc cancel", Style::new().dim()),
+            Line::styled("y/enter confirm · n/esc cancel", theme::HINT),
         ),
         PendingOp::Delete { display, .. } => (
             Line::from(format!("move {} to .jd_trash/?", display)),
-            Line::styled("y/enter confirm · n/esc cancel", Style::new().dim()),
+            Line::styled("y/enter confirm · n/esc cancel", theme::HINT),
         ),
         PendingOp::MetaRemove { entry, .. } => (
             Line::from(format!("remove {}?", entry.display())),
-            Line::styled("y/enter confirm · n/esc cancel", Style::new().dim()),
+            Line::styled("y/enter confirm · n/esc cancel", theme::HINT),
         ),
         PendingOp::Merge(p) => (
             Line::from(plan::merge_summary(p)),
-            Line::styled("y/enter confirm · n/esc cancel", Style::new().dim()),
+            Line::styled("y/enter confirm · n/esc cancel", theme::HINT),
         ),
         PendingOp::Renumber { plan: p, drawers } => (
             Line::from(plan::renumber_summary(p)),
@@ -302,10 +410,10 @@ fn confirm_lines(pending: &PendingOp) -> (Line<'static>, Line<'static>) {
                         "⚠ lives in {} other place(s) — you'll be reminded to update them · y/n",
                         drawers
                     ),
-                    Style::new().fg(Color::Yellow),
+                    theme::WARN,
                 )
             } else {
-                Line::styled("y/enter confirm · n/esc cancel", Style::new().dim())
+                Line::styled("y/enter confirm · n/esc cancel", theme::HINT)
             },
         ),
     }

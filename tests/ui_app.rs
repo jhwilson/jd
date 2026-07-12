@@ -1,7 +1,7 @@
 //! Headless tests for the TUI state machine: drive `App` with synthetic key
 //! events against the T99 fixture and observe filesystem + state effects.
 
-use jd_helper::ui::app::{App, Mode, Outcome};
+use jd_helper::ui::app::{App, Mode, Outcome, SuspendRequest};
 use jd_helper::ui::render;
 use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::{KeyCode, KeyModifiers};
@@ -98,10 +98,7 @@ fn query_with_space_filters_across_folds() {
 fn esc_clears_query_then_quits() {
     let mut h = harness();
     type_str(&mut h.app, "xyz");
-    assert!(h
-        .app
-        .handle_key(KeyCode::Esc, KeyModifiers::NONE)
-        .is_none());
+    assert!(h.app.handle_key(KeyCode::Esc, KeyModifiers::NONE).is_none());
     assert!(h.app.query.is_empty());
     assert!(matches!(
         h.app.handle_key(KeyCode::Esc, KeyModifiers::NONE),
@@ -156,10 +153,7 @@ fn create_confirm_kind_override() {
     h.app.handle_key(KeyCode::Char('f'), KeyModifiers::NONE);
     assert!(matches!(h.app.mode, Mode::Confirm { .. }));
     h.app.handle_key(KeyCode::Char('y'), KeyModifiers::NONE);
-    assert!(h
-        .root
-        .join("90-98_Second_Range/95_Notes.txt")
-        .is_file());
+    assert!(h.root.join("90-98_Second_Range/95_Notes.txt").is_file());
 }
 
 #[test]
@@ -183,11 +177,17 @@ fn delete_then_undo_restores() {
     move_cursor_to(&mut h.app, "90_Another_Cat");
     h.app.handle_key(KeyCode::Tab, KeyModifiers::NONE);
     move_cursor_to(&mut h.app, "90.01_Alpha_Item");
-    let orig = h.root.join("90-98_Second_Range/90_Another_Cat/90.01_Alpha_Item");
+    let orig = h
+        .root
+        .join("90-98_Second_Range/90_Another_Cat/90.01_Alpha_Item");
     ctrl(&mut h.app, 'x');
     h.app.handle_key(KeyCode::Char('y'), KeyModifiers::NONE);
     assert!(!orig.exists());
-    assert!(orig.parent().unwrap().join(".jd_trash/90.01_Alpha_Item").is_dir());
+    assert!(orig
+        .parent()
+        .unwrap()
+        .join(".jd_trash/90.01_Alpha_Item")
+        .is_dir());
     ctrl(&mut h.app, 'z');
     assert!(orig.is_dir());
     assert!(selected_path(&h.app).ends_with("90.01_Alpha_Item"));
@@ -279,7 +279,12 @@ fn duplicate_wizard_renumbers_recommended_entry() {
     assert!(cat.join("99.05_Second").is_dir());
     assert!(!cat.join("99.01_Second").exists());
     assert!(matches!(h.app.mode, Mode::Browse));
-    assert!(h.app.status.as_deref().unwrap_or("").contains("99.01 → 99.05"));
+    assert!(h
+        .app
+        .status
+        .as_deref()
+        .unwrap_or("")
+        .contains("99.01 → 99.05"));
     assert!(h.app.tree.warnings.is_empty());
 }
 
@@ -348,6 +353,97 @@ fn render_smoke() {
     let text = format!("{:?}", terminal.backend().buffer());
     assert!(text.contains("Test Range"));
     assert!(text.contains("TestCat"));
-    assert!(text.contains("Preview"));
-    assert!(text.contains("enter open"));
+    assert!(text.contains("JOHNNY.DECIMAL"));
+    assert!(text.contains("99-99 Test Range"));
+    assert!(!text.contains('┌'));
+    assert!(!text.contains('│'));
+    assert!(text.contains("^n new"));
+}
+
+fn suspend(outcome: Option<Outcome>) -> SuspendRequest {
+    match outcome {
+        Some(Outcome::Suspend(req)) => req,
+        _ => panic!("expected suspend outcome"),
+    }
+}
+
+#[test]
+fn notes_seed_and_preserve_existing_content() {
+    let mut h = harness();
+    move_cursor_to(&mut h.app, "90-98_Second_Range");
+    let req = suspend(ctrl(&mut h.app, 'e'));
+    assert_eq!(fs::read_to_string(&req.file).unwrap(), "# Second Range\n\n");
+
+    fs::write(&req.file, "existing notes\n").unwrap();
+    h.app = App::new(vec![h.root.clone()], h.state.clone()).unwrap();
+    move_cursor_to(&mut h.app, "90-98_Second_Range");
+    let req = suspend(ctrl(&mut h.app, 'e'));
+    assert_eq!(fs::read_to_string(req.file).unwrap(), "existing notes\n");
+}
+
+#[test]
+fn notes_are_hidden_from_rows_and_directory_preview() {
+    let h = harness();
+    assert!(!h.app.rows.iter().any(|r| r.path.ends_with(".jdmeta.md")));
+    let dir = h.root.join("99-99_Test_Range/99_TestCat/99.01_TestItem");
+    assert!(!jd_helper::preview::preview_dir(&dir)
+        .unwrap()
+        .contains(".jdmeta.md"));
+}
+
+#[test]
+fn after_editor_rescans_and_renders_notes() {
+    let mut h = harness();
+    move_cursor_to(&mut h.app, "90-98_Second_Range");
+    let req = suspend(ctrl(&mut h.app, 'e'));
+    fs::write(&req.file, "# Edited notes\n\nUseful **detail**.\n").unwrap();
+    h.app
+        .after_editor(req, std::process::Command::new("true").status());
+    assert!(h.app.selected().unwrap().has_notes);
+    let backend = TestBackend::new(100, 30);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal.draw(|f| render::draw(f, &mut h.app)).unwrap();
+    assert!(format!("{:?}", terminal.backend().buffer()).contains("Edited notes"));
+}
+
+#[test]
+fn markdown_file_is_rendered_in_preview() {
+    let mut h = harness();
+    let path = h
+        .root
+        .join("90-98_Second_Range/90_Another_Cat/90.02_Two_Word_Notes.md");
+    fs::write(&path, "# Markdown title\n\nSome `code`.\n").unwrap();
+    h.app = App::new(vec![h.root.clone()], h.state.clone()).unwrap();
+    type_str(&mut h.app, "two word notes");
+    move_cursor_to(&mut h.app, "90.02_Two_Word_Notes.md");
+    let text = render::preview_content(h.app.selected().unwrap());
+    assert!(text.to_string().contains("Markdown title"));
+    assert!(text.to_string().contains("Some code."));
+}
+
+#[test]
+fn notes_on_file_show_a_message() {
+    let mut h = harness();
+    type_str(&mut h.app, "two word notes");
+    move_cursor_to(&mut h.app, "90.02_Two_Word_Notes.md");
+    assert!(ctrl(&mut h.app, 'e').is_none());
+    assert!(matches!(h.app.mode, Mode::Message { .. }));
+}
+
+#[test]
+#[serial_test::serial]
+fn editor_command_resolution_order() {
+    let old = ["JD_EDITOR", "VISUAL", "EDITOR"].map(|k| (k, std::env::var_os(k)));
+    std::env::remove_var("JD_EDITOR");
+    std::env::set_var("VISUAL", "code -w");
+    std::env::set_var("EDITOR", "nano");
+    assert_eq!(jd_helper::ui::editor_command(), ["code", "-w"]);
+    std::env::set_var("JD_EDITOR", "vim -u NONE");
+    assert_eq!(jd_helper::ui::editor_command(), ["vim", "-u", "NONE"]);
+    for (key, value) in old {
+        match value {
+            Some(v) => std::env::set_var(key, v),
+            None => std::env::remove_var(key),
+        }
+    }
 }

@@ -20,13 +20,24 @@ use std::path::PathBuf;
 pub enum Outcome {
     Quit,
     Act(FinalAction),
+    Suspend(SuspendRequest),
+}
+
+#[derive(Debug)]
+pub struct SuspendRequest {
+    pub file: PathBuf,
+    pub select: String,
 }
 
 pub enum PromptKind {
     /// Smart create prompt; `anchor_id` is the selected node (files/links are
     /// re-anchored to their parent dir at parse time).
-    Create { anchor_id: String },
-    Rename { id: String },
+    Create {
+        anchor_id: String,
+    },
+    Rename {
+        id: String,
+    },
     /// Follow-up URL prompt after forcing kind=Link on input without a URL.
     LinkUrl {
         plan: CreatePlan,
@@ -35,7 +46,9 @@ pub enum PromptKind {
     },
     /// Add a location ("remarkable: notebook 3") or link (anything with ://)
     /// to the node's .jdmeta.
-    MetaAdd { id: String },
+    MetaAdd {
+        id: String,
+    },
 }
 
 pub enum PendingOp {
@@ -172,11 +185,7 @@ impl App {
         self.tree = fs_walk::scan_roots(&self.roots)?;
         self.rows = rows::flatten(&self.tree);
         if let Some(key) = select {
-            if let Some(ri) = self
-                .rows
-                .iter()
-                .position(|r| r.id == key || r.path == key)
-            {
+            if let Some(ri) = self.rows.iter().position(|r| r.id == key || r.path == key) {
                 let mut p = self.rows[ri].parent_idx;
                 let mut changed = false;
                 while let Some(i) = p {
@@ -278,9 +287,7 @@ impl App {
                 let recommended = entries
                     .iter()
                     .enumerate()
-                    .min_by(|(_, (a, at)), (_, (b, bt))| {
-                        a.drawers.cmp(&b.drawers).then(bt.cmp(at))
-                    })
+                    .min_by(|(_, (a, at)), (_, (b, bt))| a.drawers.cmp(&b.drawers).then(bt.cmp(at)))
                     .map(|(i, _)| i)
                     .unwrap_or(0);
                 Some(DupGroup {
@@ -413,10 +420,7 @@ impl App {
                 self.on_move_picker(src_id, query, cursor, candidates, k);
                 None
             }
-            Mode::MetaEdit { id, cursor } => {
-                self.on_meta_edit(id, cursor, k);
-                None
-            }
+            Mode::MetaEdit { id, cursor } => self.on_meta_edit(id, cursor, k),
             Mode::Duplicates { groups, gi, cursor } => {
                 self.on_duplicates(groups, gi, cursor, k);
                 None
@@ -440,23 +444,37 @@ impl App {
         Some((PathBuf::from(&n.path), entries))
     }
 
-    fn on_meta_edit(&mut self, id: String, mut cursor: usize, k: KeyEvent) {
+    fn on_meta_edit(&mut self, id: String, mut cursor: usize, k: KeyEvent) -> Option<Outcome> {
         let Some((dir, entries)) = self.meta_entries(&id) else {
             self.mode = Mode::Browse;
-            return;
+            return None;
         };
         match k.code {
             KeyCode::Esc => {
                 self.mode = Mode::Browse;
-                return;
+                return None;
             }
             KeyCode::Char('a') => {
                 self.mode = Mode::Prompt {
                     kind: PromptKind::MetaAdd { id },
                     editor: LineEditor::default(),
                 };
-                return;
+                return None;
             }
+            KeyCode::Char('e') => match meta::ensure_notes(
+                &dir,
+                self.rows
+                    .iter()
+                    .find(|r| r.id == id)
+                    .map(|r| r.title.as_str())
+                    .unwrap_or("Notes"),
+            ) {
+                Ok(file) => return Some(Outcome::Suspend(SuspendRequest { file, select: id })),
+                Err(e) => {
+                    self.message(e.to_string());
+                    return None;
+                }
+            },
             KeyCode::Char('x') => {
                 if let Some(entry) = entries.get(cursor) {
                     self.mode = Mode::Confirm {
@@ -466,7 +484,7 @@ impl App {
                             entry: entry.clone(),
                         },
                     };
-                    return;
+                    return None;
                 }
             }
             KeyCode::Up => cursor = cursor.saturating_sub(1),
@@ -474,6 +492,7 @@ impl App {
             _ => {}
         }
         self.mode = Mode::MetaEdit { id, cursor };
+        None
     }
 
     fn on_browse(&mut self, k: KeyEvent) -> Option<Outcome> {
@@ -567,18 +586,33 @@ impl App {
                         }
                     }
                 }
-                KeyCode::Char('z') => match self.last_delete.take() {
-                    Some((trash, orig)) => {
-                        match mutate::undo_delete(&self.roots, &trash, &orig) {
-                            Ok(()) => {
-                                self.query.clear();
-                                let key = orig.to_string_lossy().to_string();
-                                let _ = self.rescan(Some(&key));
-                                self.status = Some(format!("restored {}", key));
+                KeyCode::Char('e') => {
+                    if let Some(r) = self.selected() {
+                        if r.dir_like {
+                            match meta::ensure_notes(PathBuf::from(&r.path).as_path(), &r.title) {
+                                Ok(file) => {
+                                    return Some(Outcome::Suspend(SuspendRequest {
+                                        file,
+                                        select: r.id.clone(),
+                                    }))
+                                }
+                                Err(e) => self.message(e.to_string()),
                             }
-                            Err(e) => self.message(e.to_string()),
+                        } else {
+                            self.message("notes live on directories — select a folder");
                         }
                     }
+                }
+                KeyCode::Char('z') => match self.last_delete.take() {
+                    Some((trash, orig)) => match mutate::undo_delete(&self.roots, &trash, &orig) {
+                        Ok(()) => {
+                            self.query.clear();
+                            let key = orig.to_string_lossy().to_string();
+                            let _ = self.rescan(Some(&key));
+                            self.status = Some(format!("restored {}", key));
+                        }
+                        Err(e) => self.message(e.to_string()),
+                    },
                     None => self.status = Some("nothing to undo".into()),
                 },
                 _ => {}
@@ -644,6 +678,24 @@ impl App {
             _ => {}
         }
         None
+    }
+
+    pub fn after_editor(
+        &mut self,
+        req: SuspendRequest,
+        result: std::io::Result<std::process::ExitStatus>,
+    ) {
+        match result {
+            Ok(status) if status.success() => match self.rescan(Some(&req.select)) {
+                Ok(()) => {
+                    self.status = Some("notes updated".into());
+                    self.mode = Mode::Browse;
+                }
+                Err(e) => self.message(e.to_string()),
+            },
+            Ok(status) => self.message(format!("editor exited with {status}")),
+            Err(e) => self.message(format!("could not start editor: {e}")),
+        }
     }
 
     fn on_prompt(&mut self, kind: PromptKind, mut editor: LineEditor, k: KeyEvent) {
@@ -796,10 +848,8 @@ impl App {
                                     return;
                                 }
                             }
-                            self.status = Some(format!(
-                                "renumbered {} → {} · {}",
-                                old_code, new_code, tail
-                            ));
+                            self.status =
+                                Some(format!("renumbered {} → {} · {}", old_code, new_code, tail));
                             if remaining > 0 {
                                 self.enter_duplicates();
                             } else {
@@ -820,10 +870,7 @@ impl App {
                 KeyCode::Enter | KeyCode::Char('y') => {
                     match mutate::execute_merge(&self.roots, plan) {
                         Ok(undo) => {
-                            let absorbed = matches!(
-                                plan.action,
-                                MergeAction::AbsorbPointer { .. }
-                            );
+                            let absorbed = matches!(plan.action, MergeAction::AbsorbPointer { .. });
                             let (source_name, target_name, target_path) = (
                                 plan.source_name.clone(),
                                 plan.target_name.clone(),
@@ -904,18 +951,16 @@ impl App {
                 let result = match &pending {
                     PendingOp::Create { plan, .. } => {
                         let key = plan.dest_path.to_string_lossy().to_string();
-                        mutate::execute_create(&self.roots, plan).map(|_| {
-                            (Some(key), format!("created {}", plan.final_name))
-                        })
+                        mutate::execute_create(&self.roots, plan)
+                            .map(|_| (Some(key), format!("created {}", plan.final_name)))
                     }
                     PendingOp::Move(p) => mutate::execute_move(&self.roots, p)
                         .map(|_| (Some(p.id.clone()), format!("moved to {}", p.final_name))),
-                    PendingOp::Delete { id, path, display } => {
-                        mutate::delete_node(&self.roots, id).map(|trash| {
+                    PendingOp::Delete { id, path, display } => mutate::delete_node(&self.roots, id)
+                        .map(|trash| {
                             self.last_delete = Some((trash, path.clone()));
                             (None, format!("trashed {} · ctrl-z to undo", display))
-                        })
-                    }
+                        }),
                     PendingOp::MetaRemove { .. }
                     | PendingOp::Renumber { .. }
                     | PendingOp::Merge(_) => {

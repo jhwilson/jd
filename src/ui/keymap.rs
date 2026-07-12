@@ -1,5 +1,5 @@
 pub const HINT: &str =
-    "enter open · tab fold · ^N new ^R rename ^V move ^X delete ^Z undo ^L links · ^K help";
+    "enter open  tab fold  ^n new  ^r rename  ^v move  ^x delete  ^z undo  ^l links  ^e notes  ^k help";
 
 pub const HELP: &str = "\
 Navigate      type to filter (spaces ok) · ↑/↓ PgUp/PgDn Home/End select
@@ -12,6 +12,7 @@ Move          ^V — pick a destination; items moved under a category are recode
 Delete        ^X — to .jd_trash/ next to the item · ^Z undoes the last delete
 Locations     ^L — a number's other homes (reMarkable, Notion, …) in .jdmeta;
               shown atop the preview · a add ('drawer 2' or a URL) · x remove
+Notes         ^E — edit the selected folder's .jdmeta.md (e from Locations)
 Duplicates    ^F — resolve duplicate codes: enter renumbers your pick (fewest
               drawers recommended) to the next free code, recoding children;
               m merges the pick into the group's folder (LOCATION files and

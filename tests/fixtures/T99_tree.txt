@@ -1,6 +1,7 @@
 D	99-99_Test_Range
 D	99-99_Test_Range/99_TestCat
 D	99-99_Test_Range/99_TestCat/99.01_TestItem
+F	99-99_Test_Range/99_TestCat/99.01_TestItem/.jdmeta.md
 F	99-99_Test_Range/99_TestCat/99.01_TestItem/99.01.01_Nested_Note.txt
 F	99-99_Test_Range/99_TestCat/99.02_Example.url
 F	99-99_Test_Range/99_TestCat/99.03_Website.webloc

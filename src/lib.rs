@@ -2,6 +2,7 @@ pub mod fs_walk;
 pub mod ignore;
 pub mod io;
 pub mod meta;
+pub mod md;
 pub mod model;
 pub mod mutate;
 pub mod plan;

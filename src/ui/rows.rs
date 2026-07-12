@@ -17,6 +17,7 @@ pub struct Row {
     /// this node's .jdmeta locations/links plus child link items and child
     /// LOCATION= file items.
     pub meta_lines: Vec<String>,
+    pub has_notes: bool,
 }
 
 fn meta_lines(n: &Node) -> Vec<String> {
@@ -72,6 +73,7 @@ pub fn flatten(t: &Tree) -> Vec<Row> {
             dir_like,
             url: n.url.clone(),
             meta_lines: if dir_like { meta_lines(n) } else { Vec::new() },
+            has_notes: n.has_notes,
         });
         let me = out.len() - 1;
         for c in &n.children {

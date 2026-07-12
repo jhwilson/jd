@@ -18,9 +18,26 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const META_FILE: &str = ".jdmeta";
+pub const NOTES_FILE: &str = ".jdmeta.md";
+
+pub fn notes_path(dir: &Path) -> PathBuf {
+    dir.join(NOTES_FILE)
+}
+
+pub fn read_notes(dir: &Path) -> Option<String> {
+    fs::read_to_string(notes_path(dir)).ok()
+}
+
+pub fn ensure_notes(dir: &Path, title: &str) -> Result<PathBuf> {
+    let path = notes_path(dir);
+    if !path.exists() {
+        fs::write(&path, format!("# {title}\n\n"))?;
+    }
+    Ok(path)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MetaLink {
@@ -45,7 +62,10 @@ impl Entry {
         }
         if input.contains("://") {
             let (url, label) = match input.split_once(' ') {
-                Some((u, l)) => (u.to_string(), Some(l.trim().to_string()).filter(|s| !s.is_empty())),
+                Some((u, l)) => (
+                    u.to_string(),
+                    Some(l.trim().to_string()).filter(|s| !s.is_empty()),
+                ),
                 None => (input.to_string(), None),
             };
             Some(Entry::Link(MetaLink { url, label }))
@@ -175,7 +195,8 @@ mod tests {
     fn round_trip_preserves_unknown_lines() {
         let td = tempfile::tempdir().unwrap();
         let dir = td.path();
-        let original = "# my notes\nLOCATION=drawer 2\nFUTUREKEY=whatever\n\nLINK=https://x.io lab\n";
+        let original =
+            "# my notes\nLOCATION=drawer 2\nFUTUREKEY=whatever\n\nLINK=https://x.io lab\n";
         std::fs::write(dir.join(META_FILE), original).unwrap();
 
         let e = entries(dir);
@@ -200,5 +221,15 @@ mod tests {
         assert!(dir.join(META_FILE).exists());
         remove_entry(dir, &e).unwrap();
         assert!(!dir.join(META_FILE).exists());
+    }
+
+    #[test]
+    fn notes_are_seeded_once() {
+        let td = tempfile::tempdir().unwrap();
+        let path = ensure_notes(td.path(), "Folder title").unwrap();
+        assert_eq!(read_notes(td.path()).as_deref(), Some("# Folder title\n\n"));
+        fs::write(&path, "kept\n").unwrap();
+        ensure_notes(td.path(), "Other title").unwrap();
+        assert_eq!(read_notes(td.path()).as_deref(), Some("kept\n"));
     }
 }

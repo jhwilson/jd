@@ -28,6 +28,8 @@ pub struct Node {
     pub locations: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<crate::meta::MetaLink>,
+    #[serde(default)]
+    pub has_notes: bool,
     pub children: Vec<Node>,
 }
 
@@ -320,6 +322,7 @@ mod tests {
             url: None,
             locations: vec![],
             links: vec![],
+            has_notes: false,
             children,
         }
     }

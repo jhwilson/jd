@@ -27,7 +27,7 @@ pub fn is_ignored_dir_name(name: &str) -> bool {
 pub fn is_ignored_file_name(name: &str) -> bool {
     let n = name.to_lowercase();
     // macOS Finder metadata; jd's own per-directory metadata file
-    if n == ".ds_store" || n == ".jdmeta" {
+    if n == ".ds_store" || n == ".jdmeta" || n == ".jdmeta.md" {
         return true;
     }
     // Logs and backups

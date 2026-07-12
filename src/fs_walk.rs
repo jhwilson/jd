@@ -87,6 +87,7 @@ fn scan_dir(path: &Path, is_root: bool, warnings: &mut Vec<String>) -> Result<No
     let mut children: Vec<Node> = Vec::new();
     let mut locations: Vec<String> = Vec::new();
     let mut links: Vec<crate::meta::MetaLink> = Vec::new();
+    let mut has_notes = false;
     if path.is_dir() {
         let mut entries: Vec<PathBuf> = Vec::new();
         let mut has_meta = false;
@@ -94,6 +95,10 @@ fn scan_dir(path: &Path, is_root: bool, warnings: &mut Vec<String>) -> Result<No
             let p = e.path();
             if p.file_name().and_then(|n| n.to_str()) == Some(meta::META_FILE) {
                 has_meta = true;
+                continue;
+            }
+            if p.file_name().and_then(|n| n.to_str()) == Some(meta::NOTES_FILE) {
+                has_notes = true;
                 continue;
             }
             if !is_ignored_entry(&p) {
@@ -148,6 +153,7 @@ fn scan_dir(path: &Path, is_root: bool, warnings: &mut Vec<String>) -> Result<No
                         url: url_opt,
                         locations: vec![],
                         links: vec![],
+                        has_notes: false,
                         children: vec![],
                     });
                 }
@@ -175,6 +181,7 @@ fn scan_dir(path: &Path, is_root: bool, warnings: &mut Vec<String>) -> Result<No
         url: None,
         locations,
         links,
+        has_notes,
         children,
     })
 }

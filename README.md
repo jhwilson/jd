@@ -114,8 +114,20 @@ embed the old code (`21.04 → 21.07` also renames `21.04.01_…`), and rewrites
 the old code inside the entry's own `.jdmeta`. If the entry lives in other
 places (reMarkable, Notion, …) you land in the locations editor with a
 reminder to update them now. Ranges are refused — renumbering a decade is a
-manual decision. Scriptable via `jd-helper duplicates ROOTS...` and
-`jd-helper renumber --id <id> ROOTS...`.
+manual decision.
+
+Often a "duplicate" is really the same thing pointed at twice — a
+`LOCATION=` pointer file or a link next to the folder with the same number.
+`m` merges the selected entry into the group's folder instead: pointer files
+and links become `.jdmeta` entries on the folder (the file is trashed,
+Ctrl-Z restores it), and plain content moves inside the folder, where the
+shared code is the stamping convention rather than a collision. Contents
+named after their own folder (`12.02_notes.pdf` inside `12.02_…/`) are never
+flagged in the first place.
+
+Scriptable via `jd-helper duplicates ROOTS...`,
+`jd-helper renumber --id <id> ROOTS...`, and
+`jd-helper merge --id <src> --into <target> ROOTS...`.
 
 Search behavior
 ---------------
@@ -145,6 +157,7 @@ The TUI is one subcommand among scriptable primitives:
 - `meta list|add|remove --id ID [--value STR] ROOTS...` → `.jdmeta` entries
 - `duplicates ROOTS...` → list duplicate-code groups (code, id, drawers, path)
 - `renumber --id ID ROOTS...` → next free code under the parent, children recoded
+- `merge --id SRC --into TARGET ROOTS...` → absorb a pointer into the folder's `.jdmeta`, or move content inside
 - `suggest --parent CODE ROOTS...` → next free code under `NN`
 - `toggle | expand-all | reset-state` → fold-state manipulation
 - `write-index ROOTS... [--out PATH]` → write `ROOT/.jd_index.json`

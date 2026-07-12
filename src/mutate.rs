@@ -107,6 +107,29 @@ pub fn undo_delete(roots: &[PathBuf], trash: &Path, original: &Path) -> Result<(
     index(roots)
 }
 
+/// Execute a merge. Absorbing a pointer returns the (trash, original) pair
+/// of the trashed source so the caller can offer undo; moving content inside
+/// returns None.
+pub fn execute_merge(
+    roots: &[PathBuf],
+    p: &crate::plan::MergePlan,
+) -> Result<Option<(PathBuf, PathBuf)>> {
+    match &p.action {
+        crate::plan::MergeAction::AbsorbPointer { entries } => {
+            for e in entries {
+                crate::meta::add_entry(&p.target_path, e)?;
+            }
+            let trash = delete_node(roots, &p.source_id)?;
+            Ok(Some((trash, p.src_path.clone())))
+        }
+        crate::plan::MergeAction::MoveInside => {
+            fs::rename(&p.src_path, p.target_path.join(p.src_path.file_name().unwrap()))?;
+            index(roots)?;
+            Ok(None)
+        }
+    }
+}
+
 /// Execute a renumber: rename the entry, cascade-rename descendants whose
 /// filenames embed the old code, and rewrite the old code inside the entry's
 /// own .jdmeta. Returns the new path.

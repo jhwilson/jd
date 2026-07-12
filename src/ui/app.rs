@@ -8,7 +8,7 @@ use crate::{
     fs_walk, meta,
     model::{self, NodeType},
     mutate,
-    plan::{self, CreatePlan, MovePlan, PlanKind, RenumberPlan},
+    plan::{self, CreatePlan, MergeAction, MergePlan, MovePlan, PlanKind, RenumberPlan},
     state,
     tsv::ExpandedState,
 };
@@ -60,6 +60,7 @@ pub enum PendingOp {
         plan: RenumberPlan,
         drawers: usize,
     },
+    Merge(MergePlan),
 }
 
 /// One colliding entry in the duplicate-resolution wizard.
@@ -344,6 +345,39 @@ impl App {
                     }
                     return;
                 }
+            }
+            KeyCode::Char('m') => {
+                // merge the selected entry into the group's folder
+                let dirs: Vec<usize> = group
+                    .entries
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| self.rows[e.row_idx].dir_like)
+                    .map(|(i, _)| i)
+                    .collect();
+                let Some(target) = (dirs.len() == 1).then(|| dirs[0]) else {
+                    self.message("merge needs exactly one folder in the group");
+                    return;
+                };
+                let source = if cursor != target {
+                    cursor
+                } else if group.entries.len() == 2 {
+                    1 - cursor
+                } else {
+                    self.message("select the entry to merge into the folder, not the folder");
+                    return;
+                };
+                let src_id = self.rows[group.entries[source].row_idx].id.clone();
+                let tgt_id = self.rows[group.entries[target].row_idx].id.clone();
+                match plan::plan_merge(&self.tree, &src_id, &tgt_id) {
+                    Ok(plan) => {
+                        self.mode = Mode::Confirm {
+                            pending: PendingOp::Merge(plan),
+                        };
+                    }
+                    Err(err) => self.message(err.to_string()),
+                }
+                return;
             }
             KeyCode::Up => cursor = cursor.saturating_sub(1),
             KeyCode::Down => cursor = (cursor + 1).min(group.entries.len().saturating_sub(1)),
@@ -779,6 +813,53 @@ impl App {
             }
             return;
         }
+        // Merges flow back into the wizard like renumbers.
+        if let PendingOp::Merge(plan) = &pending {
+            match k.code {
+                KeyCode::Esc | KeyCode::Char('n') => self.enter_duplicates(),
+                KeyCode::Enter | KeyCode::Char('y') => {
+                    match mutate::execute_merge(&self.roots, plan) {
+                        Ok(undo) => {
+                            let absorbed = matches!(
+                                plan.action,
+                                MergeAction::AbsorbPointer { .. }
+                            );
+                            let (source_name, target_name, target_path) = (
+                                plan.source_name.clone(),
+                                plan.target_name.clone(),
+                                plan.target_path.to_string_lossy().to_string(),
+                            );
+                            if undo.is_some() {
+                                self.last_delete = undo;
+                            }
+                            self.query.clear();
+                            let _ = self.rescan(Some(&target_path));
+                            let remaining = self.duplicate_groups().len();
+                            let tail = match remaining {
+                                0 => "no duplicates remain".to_string(),
+                                n => format!("{} duplicate group(s) left — ^F", n),
+                            };
+                            self.status = Some(if absorbed {
+                                format!(
+                                    "merged {} into {} — pointer in .jdmeta, file trashed (ctrl-z restores) · {}",
+                                    source_name, target_name, tail
+                                )
+                            } else {
+                                format!("moved {} inside {} · {}", source_name, target_name, tail)
+                            });
+                            if remaining > 0 {
+                                self.enter_duplicates();
+                            } else {
+                                self.mode = Mode::Browse;
+                            }
+                        }
+                        Err(e) => self.message(e.to_string()),
+                    }
+                }
+                _ => self.mode = Mode::Confirm { pending },
+            }
+            return;
+        }
         // Meta removals return to the meta editor, not Browse.
         if let PendingOp::MetaRemove { id, dir, entry } = &pending {
             match k.code {
@@ -835,7 +916,9 @@ impl App {
                             (None, format!("trashed {} · ctrl-z to undo", display))
                         })
                     }
-                    PendingOp::MetaRemove { .. } | PendingOp::Renumber { .. } => {
+                    PendingOp::MetaRemove { .. }
+                    | PendingOp::Renumber { .. }
+                    | PendingOp::Merge(_) => {
                         unreachable!("handled above")
                     }
                 };

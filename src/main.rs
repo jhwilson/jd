@@ -36,6 +36,18 @@ enum Commands {
     Duplicates(DuplicatesCmd),
     /// Give a node the next free code under its parent (children recoded)
     Renumber(RenumberCmd),
+    /// Merge a duplicate into the folder with the same number
+    Merge(MergeCmd),
+}
+
+#[derive(Args, Debug)]
+struct MergeCmd {
+    #[arg(long)]
+    id: String,
+    #[arg(long, value_name = "TARGET_ID")]
+    into: String,
+    #[arg(required = true)]
+    roots: Vec<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -439,6 +451,12 @@ fn main() -> Result<()> {
             let plan = jd_helper::plan::plan_renumber(&tree, &cmd.id)?;
             let dest = mutate::execute_renumber(&cmd.roots, &plan)?;
             println!("{}\t{}\t{}", plan.old_code, plan.new_code, dest.display());
+        }
+        Commands::Merge(cmd) => {
+            let tree = fs_walk::scan_roots(&cmd.roots)?;
+            let plan = jd_helper::plan::plan_merge(&tree, &cmd.id, &cmd.into)?;
+            println!("{}", jd_helper::plan::merge_summary(&plan));
+            mutate::execute_merge(&cmd.roots, &plan)?;
         }
         Commands::Meta(cmd) => {
             fn node_dir(roots: &[PathBuf], id: &str) -> Result<PathBuf> {

@@ -12,9 +12,10 @@ Move          ^V — pick a destination; items moved under a category are recode
 Delete        ^X — to .jd_trash/ next to the item · ^Z undoes the last delete
 Locations     ^L — a number's other homes (reMarkable, Notion, …) in .jdmeta;
               shown atop the preview · a add ('drawer 2' or a URL) · x remove
-Duplicates    ^F — resolve duplicate codes: renumbers your pick (fewest
-              drawers recommended) to the next free code, recodes children,
-              then reminds you to update external places
+Duplicates    ^F — resolve duplicate codes: enter renumbers your pick (fewest
+              drawers recommended) to the next free code, recoding children;
+              m merges the pick into the group's folder (LOCATION files and
+              links become .jdmeta entries, content moves inside)
 Query         ^U clear · esc clears, then quits
 Help          ^K (or F1)
 Quit          ^Q or ^C · esc (with empty filter)";

@@ -320,6 +320,124 @@ pub fn plan_renumber(tree: &Tree, id: &str) -> Result<RenumberPlan> {
     })
 }
 
+#[derive(Clone, Debug)]
+pub enum MergeAction {
+    /// Source is a pure pointer: its location/URL becomes a .jdmeta entry on
+    /// the target folder and the source file is trashed.
+    AbsorbPointer { entries: Vec<crate::meta::Entry> },
+    /// Source is real content: it moves inside the target folder, where the
+    /// shared code is the stamping convention rather than a duplicate.
+    MoveInside,
+}
+
+#[derive(Clone, Debug)]
+pub struct MergePlan {
+    pub source_id: String,
+    pub source_name: String,
+    pub src_path: PathBuf,
+    pub target_id: String,
+    pub target_name: String,
+    pub target_path: PathBuf,
+    pub action: MergeAction,
+}
+
+/// Merge a duplicate entry into the folder that carries the same number.
+pub fn plan_merge(tree: &Tree, source_id: &str, target_id: &str) -> Result<MergePlan> {
+    let src = model::find_node(tree, source_id).ok_or_else(|| anyhow::anyhow!("not found"))?;
+    let tgt =
+        model::find_node(tree, target_id).ok_or_else(|| anyhow::anyhow!("target not found"))?;
+    if source_id == target_id {
+        bail!("cannot merge an entry into itself");
+    }
+    let tgt_dir_like = matches!(
+        tgt.node_type,
+        NodeType::Range | NodeType::Category | NodeType::ItemDir | NodeType::Other
+    );
+    if !tgt_dir_like {
+        bail!("merge target must be a folder");
+    }
+    let src_path = PathBuf::from(&src.path);
+    let target_path = PathBuf::from(&tgt.path);
+    if format!("{}/", target_path.display()).starts_with(&format!("{}/", src_path.display())) {
+        bail!("cannot merge a folder into its own contents");
+    }
+    if matches!(src.node_type, NodeType::Range) {
+        bail!("merging a range is a manual decision");
+    }
+    let action = match src.node_type {
+        NodeType::File if src.location.is_some() => plan_absorb(
+            tgt,
+            vec![crate::meta::Entry::Location(src.location.clone().unwrap())],
+        )?,
+        NodeType::Link if src.url.is_some() => plan_absorb(
+            tgt,
+            vec![crate::meta::Entry::Link(crate::meta::MetaLink {
+                url: src.url.clone().unwrap(),
+                label: Some(src.title.clone()),
+            })],
+        )?,
+        _ => {
+            let dest = target_path.join(src_path.file_name().unwrap());
+            if dest.exists() {
+                bail!("target already contains {}", dest.display());
+            }
+            MergeAction::MoveInside
+        }
+    };
+    let name = |p: &PathBuf| {
+        p.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    Ok(MergePlan {
+        source_id: source_id.into(),
+        source_name: name(&src_path),
+        src_path,
+        target_id: target_id.into(),
+        target_name: name(&target_path),
+        target_path,
+        action,
+    })
+}
+
+fn plan_absorb(tgt: &Node, entries: Vec<crate::meta::Entry>) -> Result<MergeAction> {
+    // don't re-add pointers the folder already carries
+    let existing_locations = &tgt.locations;
+    let existing_urls: Vec<&str> = tgt.links.iter().map(|l| l.url.as_str()).collect();
+    let entries: Vec<_> = entries
+        .into_iter()
+        .filter(|e| match e {
+            crate::meta::Entry::Location(s) => !existing_locations.contains(s),
+            crate::meta::Entry::Link(l) => !existing_urls.contains(&l.url.as_str()),
+        })
+        .collect();
+    Ok(MergeAction::AbsorbPointer { entries })
+}
+
+pub fn merge_summary(p: &MergePlan) -> String {
+    match &p.action {
+        MergeAction::AbsorbPointer { entries } => {
+            let what = if entries.is_empty() {
+                "already in .jdmeta".to_string()
+            } else {
+                entries
+                    .iter()
+                    .map(|e| e.display())
+                    .collect::<Vec<_>>()
+                    .join(" · ")
+            };
+            format!(
+                "will merge {} into {}: {} → .jdmeta, file → trash",
+                p.source_name, p.target_name, what
+            )
+        }
+        MergeAction::MoveInside => format!(
+            "will move {} inside {}",
+            p.source_name, p.target_name
+        ),
+    }
+}
+
 pub fn renumber_summary(p: &RenumberPlan) -> String {
     let cascade = match p.child_renames {
         0 => String::new(),
@@ -545,6 +663,49 @@ mod tests {
         // ranges are refused
         let range = node_by_suffix(&tree, "30-39_Research").id.clone();
         assert!(plan_renumber(&tree, &range).is_err());
+    }
+
+    #[test]
+    fn merge_planning() {
+        let (td, _) = fixture();
+        let r = td.path().join("R");
+        let cat = r.join("30-39_Research/31_Papers");
+        // the 53.02 shape: a folder plus a LOCATION pointer file, same code
+        fs::write(cat.join("31.01_Existing_remote"), b"LOCATION=Box\n").unwrap();
+        // and a link item plus a plain content file sharing the code
+        fs::write(
+            cat.join("31.01_page.url"),
+            b"[InternetShortcut]\nURL=https://x.io/a\n",
+        )
+        .unwrap();
+        fs::write(cat.join("31.01_data.zip"), b"zzz").unwrap();
+        let tree = fs_walk::scan_roots(&[r]).unwrap();
+        let folder = node_by_suffix(&tree, "31.01_Existing").id.clone();
+
+        // LOCATION pointer -> absorbed
+        let src = node_by_suffix(&tree, "31.01_Existing_remote").id.clone();
+        let p = plan_merge(&tree, &src, &folder).unwrap();
+        match &p.action {
+            MergeAction::AbsorbPointer { entries } => {
+                assert_eq!(entries, &[crate::meta::Entry::Location("Box".into())])
+            }
+            other => panic!("expected absorb, got {:?}", other),
+        }
+
+        // link item -> absorbed with the title as label
+        let src = node_by_suffix(&tree, "31.01_page.url").id.clone();
+        let p = plan_merge(&tree, &src, &folder).unwrap();
+        assert!(matches!(&p.action, MergeAction::AbsorbPointer { entries }
+            if matches!(&entries[0], crate::meta::Entry::Link(l) if l.url == "https://x.io/a")));
+
+        // plain content -> moved inside
+        let src = node_by_suffix(&tree, "31.01_data.zip").id.clone();
+        let p = plan_merge(&tree, &src, &folder).unwrap();
+        assert!(matches!(p.action, MergeAction::MoveInside));
+
+        // target must be a folder
+        let file_tgt = node_by_suffix(&tree, "31.03_Two_Word_Note.txt").id.clone();
+        assert!(plan_merge(&tree, &src, &file_tgt).is_err());
     }
 
     #[test]

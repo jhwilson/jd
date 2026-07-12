@@ -232,8 +232,8 @@ fn bottom_lines(app: &App) -> (Line<'static>, Line<'static>) {
             hint("a add · x remove · ↑/↓ select · esc done"),
         ),
         Mode::Duplicates { .. } => (
-            Line::from("Same code, several entries — pick the one to renumber"),
-            hint("↑/↓ select · enter renumber · s skip group · esc done"),
+            Line::from("Same code, several entries — renumber one, or merge a pointer/file into the folder"),
+            hint("↑/↓ select · enter renumber · m merge into folder · s skip group · esc done"),
         ),
         Mode::Message { text, error } => (
             Line::styled(
@@ -288,6 +288,10 @@ fn confirm_lines(pending: &PendingOp) -> (Line<'static>, Line<'static>) {
         ),
         PendingOp::MetaRemove { entry, .. } => (
             Line::from(format!("remove {}?", entry.display())),
+            Line::styled("y/enter confirm · n/esc cancel", Style::new().dim()),
+        ),
+        PendingOp::Merge(p) => (
+            Line::from(plan::merge_summary(p)),
             Line::styled("y/enter confirm · n/esc cancel", Style::new().dim()),
         ),
         PendingOp::Renumber { plan: p, drawers } => (

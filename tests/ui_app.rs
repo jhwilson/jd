@@ -310,6 +310,35 @@ fn duplicate_wizard_cascades_and_reminds_about_drawers() {
 }
 
 #[test]
+fn duplicate_wizard_merges_pointer_file_into_folder() {
+    let mut h = harness();
+    // the 53.02 shape: LOCATION pointer file next to the same-numbered folder
+    let cat = h.root.join("99-99_Test_Range/99_TestCat");
+    fs::write(cat.join("99.01_TestItem_remote"), b"LOCATION=Box\n").unwrap();
+    h.app = App::new(vec![h.root.clone()], h.state.clone()).unwrap();
+
+    ctrl(&mut h.app, 'f');
+    // cursor sits on the recommended entry; 'm' merges the pointer into the
+    // folder regardless of which of the two is selected
+    h.app.handle_key(KeyCode::Char('m'), KeyModifiers::NONE);
+    assert!(matches!(h.app.mode, Mode::Confirm { .. }));
+    h.app.handle_key(KeyCode::Char('y'), KeyModifiers::NONE);
+
+    // pointer absorbed into .jdmeta, file soft-deleted, duplicates gone
+    assert_eq!(
+        fs::read_to_string(cat.join("99.01_TestItem/.jdmeta")).unwrap(),
+        "LOCATION=Box\n"
+    );
+    assert!(!cat.join("99.01_TestItem_remote").exists());
+    assert!(cat.join(".jd_trash/99.01_TestItem_remote").is_file());
+    assert!(h.app.duplicate_groups().is_empty());
+    assert!(matches!(h.app.mode, Mode::Browse));
+    // undoable: ctrl-z restores the pointer file
+    ctrl(&mut h.app, 'z');
+    assert!(cat.join("99.01_TestItem_remote").is_file());
+}
+
+#[test]
 fn render_smoke() {
     let mut h = harness();
     ctrl(&mut h.app, 'a'); // expand all so category rows are on screen

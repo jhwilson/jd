@@ -95,6 +95,48 @@ fn query_with_space_filters_across_folds() {
 }
 
 #[test]
+fn filter_shows_ancestor_context_and_cursor_skips_it() {
+    let mut h = harness();
+    // "item" matches 99.01 TestItem and 90.01 Alpha Item, in different ranges.
+    type_str(&mut h.app, "item");
+    let display =
+        |i: &usize| h.app.rows[*i].display.clone();
+    let visible: Vec<String> = h.app.visible.iter().map(display).collect();
+    // Non-matching ancestors are spliced in as context so each match sits
+    // under its range/category...
+    for anc in ["99-99 Test Range", "99 TestCat", "90-98 Second Range"] {
+        assert!(visible.iter().any(|d| d == anc), "missing context: {anc}");
+        let idx = h.app.visible[visible.iter().position(|d| d == anc).unwrap()];
+        assert!(h.app.context.contains(&idx), "not marked context: {anc}");
+    }
+    // ...and each context row precedes its matching descendant.
+    let pos = |needle: &str| visible.iter().position(|d| d.contains(needle)).unwrap();
+    assert!(pos("99 TestCat") < pos("TestItem"));
+    assert!(pos("90-98 Second Range") < pos("Alpha Item"));
+    // Matches themselves are not context, and the cursor snapped onto one.
+    let first = selected_path(&h.app);
+    assert!(first.contains("Item"), "cursor on context row: {first}");
+    // Down jumps match-to-match, skipping the context rows in between.
+    h.app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+    let second = selected_path(&h.app);
+    assert!(second.contains("Item") && second != first);
+    // End lands on the last match, never on trailing context.
+    h.app.handle_key(KeyCode::End, KeyModifiers::NONE);
+    assert!(selected_path(&h.app).contains("Item"));
+
+    // Context rows render dimmed but present.
+    let backend = TestBackend::new(100, 30);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal.draw(|f| render::draw(f, &mut h.app)).unwrap();
+    let text = format!("{:?}", terminal.backend().buffer());
+    assert!(text.contains("99-99 Test Range"));
+
+    // Clearing the query drops all context state.
+    h.app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+    assert!(h.app.context.is_empty());
+}
+
+#[test]
 fn esc_clears_query_then_quits() {
     let mut h = harness();
     type_str(&mut h.app, "xyz");

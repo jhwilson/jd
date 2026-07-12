@@ -14,6 +14,7 @@ use crate::{
 };
 use anyhow::Result;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 /// What a key press means for the event loop.
@@ -131,6 +132,9 @@ pub struct App {
     pub tree: crate::model::Tree,
     pub rows: Vec<Row>,
     pub visible: Vec<usize>,
+    /// Rows present in `visible` only to situate matches under their ancestors
+    /// while a query is active: rendered dimmed, skipped by the cursor.
+    pub context: HashSet<usize>,
     pub expanded: ExpandedState,
     pub query: String,
     pub cursor: usize,
@@ -152,6 +156,7 @@ impl App {
             tree,
             rows,
             visible,
+            context: HashSet::new(),
             expanded,
             query: String::new(),
             cursor: 0,
@@ -169,14 +174,71 @@ impl App {
     }
 
     /// Recompute visible rows: fold-aware tree when the query is empty,
-    /// full-tree fuzzy match while a query is active.
+    /// full-tree fuzzy match while a query is active. Matches bring their
+    /// non-matching ancestors along as dimmed context rows so the tree shape
+    /// (54.01 under 54 under 50-59) stays legible in the filtered list.
     fn filter(&mut self) {
+        self.context.clear();
         self.visible = if self.query.is_empty() {
             rows::visible(&self.rows, &self.expanded)
         } else {
-            self.search.matched(&self.rows, &self.query)
+            let matched = self.search.matched(&self.rows, &self.query);
+            let hit: HashSet<usize> = matched.iter().copied().collect();
+            for &m in &matched {
+                let mut p = self.rows[m].parent_idx;
+                while let Some(i) = p {
+                    if !hit.contains(&i) {
+                        self.context.insert(i);
+                    }
+                    p = self.rows[i].parent_idx;
+                }
+            }
+            let mut all = matched;
+            all.extend(self.context.iter().copied());
+            all.sort_unstable();
+            all
         };
         self.cursor = self.cursor.min(self.visible.len().saturating_sub(1));
+        self.snap_cursor();
+    }
+
+    /// If the cursor sits on a context row, slide it to the nearest real
+    /// match — forward first, then backward.
+    fn snap_cursor(&mut self) {
+        match self.visible.get(self.cursor) {
+            Some(i) if self.context.contains(i) => {}
+            _ => return,
+        }
+        if let Some(off) = self.visible[self.cursor..]
+            .iter()
+            .position(|i| !self.context.contains(i))
+        {
+            self.cursor += off;
+        } else if let Some(pos) = self.visible[..self.cursor]
+            .iter()
+            .rposition(|i| !self.context.contains(i))
+        {
+            self.cursor = pos;
+        }
+    }
+
+    /// Step the cursor by `delta` selectable rows, skipping context rows.
+    fn step_cursor(&mut self, delta: isize) {
+        let n = self.visible.len() as isize;
+        let dir = if delta < 0 { -1 } else { 1 };
+        let mut cur = self.cursor as isize;
+        'steps: for _ in 0..delta.unsigned_abs() {
+            let mut j = cur + dir;
+            while (0..n).contains(&j) {
+                if !self.context.contains(&self.visible[j as usize]) {
+                    cur = j;
+                    continue 'steps;
+                }
+                j += dir;
+            }
+            break;
+        }
+        self.cursor = cur as usize;
     }
 
     /// Rescan the filesystem and, if `select` matches a row id or path, expand
@@ -635,16 +697,18 @@ impl App {
                 self.query.pop();
                 self.filter();
             }
-            KeyCode::Up => self.cursor = self.cursor.saturating_sub(1),
-            KeyCode::Down => {
-                self.cursor = (self.cursor + 1).min(self.visible.len().saturating_sub(1))
+            KeyCode::Up => self.step_cursor(-1),
+            KeyCode::Down => self.step_cursor(1),
+            KeyCode::PageUp => self.step_cursor(-10),
+            KeyCode::PageDown => self.step_cursor(10),
+            KeyCode::Home => {
+                self.cursor = 0;
+                self.snap_cursor();
             }
-            KeyCode::PageUp => self.cursor = self.cursor.saturating_sub(10),
-            KeyCode::PageDown => {
-                self.cursor = (self.cursor + 10).min(self.visible.len().saturating_sub(1))
+            KeyCode::End => {
+                self.cursor = self.visible.len().saturating_sub(1);
+                self.snap_cursor();
             }
-            KeyCode::Home => self.cursor = 0,
-            KeyCode::End => self.cursor = self.visible.len().saturating_sub(1),
             KeyCode::Tab | KeyCode::Left | KeyCode::Right => {
                 if let Some(r) = self.selected() {
                     if r.dir_like && r.depth > 0 {

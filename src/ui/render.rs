@@ -193,6 +193,11 @@ fn row_line(app: &mut App, row_idx: usize, query: &str) -> Line<'static> {
         "  "
     };
     let prefix = format!("{}{}", "  ".repeat(r.depth), glyph);
+    // Ancestors pulled in only to situate matches (browse filter, not the
+    // move picker's own candidate list) render dimmed, no hit highlighting.
+    if app.context.contains(&row_idx) && !matches!(app.mode, Mode::MovePicker { .. }) {
+        return Line::styled(format!("{}{}", prefix, r.display), theme::MUTED);
+    }
     if query.is_empty() {
         return Line::from(format!("{}{}", prefix, r.display));
     }

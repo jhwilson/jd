@@ -5,6 +5,9 @@ WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WRAPPER_FILE="$WRAPPER_DIR/jd.zsh"
 TARGET_ZSHRC="$HOME/.zshrc"
 
+# The wrapper puts target/release on PATH, so installing means building.
+(cd "$WRAPPER_DIR/.." && cargo build --release)
+
 if ! grep -q "# BEGIN jd wrapper" "$TARGET_ZSHRC" 2>/dev/null; then
   {
     echo "# BEGIN jd wrapper"

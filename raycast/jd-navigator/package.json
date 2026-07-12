@@ -1,0 +1,83 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "jd-navigator",
+  "title": "Johnny.Decimal",
+  "description": "Navigate a Johnny.Decimal filing system via jd-helper",
+  "icon": "icon.png",
+  "author": "justin",
+  "license": "MIT",
+  "commands": [
+    {
+      "name": "search",
+      "title": "Search Johnny.Decimal",
+      "description": "Fuzzy-search the JD tree and act on entries",
+      "mode": "view"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "jdHelperPath",
+      "type": "textfield",
+      "required": false,
+      "title": "jd-helper Binary",
+      "default": "/Users/justin/bin/jd/target/release/jd-helper",
+      "description": "Path to the jd-helper binary"
+    },
+    {
+      "name": "roots",
+      "type": "textfield",
+      "required": true,
+      "title": "JD Roots",
+      "default": "/Users/justin/R50_Research",
+      "description": "Root directories passed to jd-helper scan (space-separated)"
+    },
+    {
+      "name": "primaryAction",
+      "type": "dropdown",
+      "required": false,
+      "title": "Primary Action (Enter)",
+      "default": "finder",
+      "description": "Which open action Enter triggers on directories",
+      "data": [
+        {
+          "title": "Open in Finder",
+          "value": "finder"
+        },
+        {
+          "title": "Open in Ghostty",
+          "value": "ghostty"
+        },
+        {
+          "title": "Open in Cursor",
+          "value": "cursor"
+        }
+      ]
+    },
+    {
+      "name": "showFiles",
+      "type": "checkbox",
+      "required": false,
+      "title": "Results",
+      "label": "Include files (not just folders)",
+      "default": true,
+      "description": "Show file entries in search results"
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.104.22",
+    "@raycast/utils": "^2.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "typescript": "^5.8.0"
+  },
+  "scripts": {
+    "dev": "ray develop",
+    "build": "ray build -e dist",
+    "lint": "ray lint"
+  },
+  "allowScripts": {
+    "esbuild@0.27.7": true
+  }
+}

@@ -1,6 +1,5 @@
 # Rust build and tooling
 /target/
-/Cargo.lock 
 **/*.rs.bk
 **/*.rlib
 **/*.rmeta
